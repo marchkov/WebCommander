@@ -14,6 +14,9 @@ interface FilePanelProps {
   sortOrder: 'asc' | 'desc';
   onSort: (column: string) => void;
   onDoubleClick?: (fileId: string) => void;
+  mode?: 'local' | 'ssh';
+  sshHost?: string;
+  sshUser?: string;
 }
 
 function formatSize(bytes: number): string {
@@ -93,6 +96,9 @@ const FilePanel: React.FC<FilePanelProps> = ({
   sortOrder,
   onSort,
   onDoubleClick,
+  mode = 'local',
+  sshHost,
+  sshUser,
 }) => {
   const sortedFiles = [...files].sort((a, b) => {
     // Folders first
@@ -135,14 +141,30 @@ const FilePanel: React.FC<FilePanelProps> = ({
     >
       {/* Panel Header */}
       <div className={`px-3 py-2 flex items-center gap-2 ${
-        isActive ? 'bg-gradient-to-r from-cyan-900/40 to-blue-900/40' : 'bg-gray-800/60'
+        isActive ? (mode === 'ssh' ? 'bg-gradient-to-r from-green-900/40 to-emerald-900/40' : 'bg-gradient-to-r from-cyan-900/40 to-blue-900/40') : 'bg-gray-800/60'
       } border-b border-gray-700/50`}>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <i className="fa-solid fa-hard-drive text-cyan-400 text-sm"></i>
-          <span className="text-sm font-semibold text-gray-200 truncate">{title}</span>
+          {mode === 'ssh' ? (
+            <>
+              <i className="fa-solid fa-terminal text-green-400 text-sm"></i>
+              <span className="text-sm font-semibold text-gray-200 truncate">
+                {sshUser}@{sshHost}
+              </span>
+            </>
+          ) : (
+            <>
+              <i className="fa-solid fa-hard-drive text-cyan-400 text-sm"></i>
+              <span className="text-sm font-semibold text-gray-200 truncate">{title}</span>
+            </>
+          )}
         </div>
-        <div className="text-xs text-gray-500">
-          {files.length} items
+        <div className="text-xs text-gray-500 flex items-center gap-2">
+          {mode === 'ssh' && (
+            <span className="px-1.5 py-0.5 bg-green-900/30 border border-green-700/50 rounded text-green-400 text-[10px] font-medium">
+              SSH
+            </span>
+          )}
+          <span>{files.length} items</span>
         </div>
       </div>
 

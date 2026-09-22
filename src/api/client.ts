@@ -128,6 +128,93 @@ class ApiClient {
       permissions: string;
     }>(`/files/info?path=${encodeURIComponent(path)}`);
   }
+
+  // ============ SSH Methods ============
+
+  async sshConnect(sessionId: string, config: {
+    host: string;
+    port?: number;
+    username: string;
+    password?: string;
+    privateKey?: string;
+    passphrase?: string;
+  }) {
+    return this.request<{ success: boolean; host: string; username: string }>('/ssh/connect', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, ...config }),
+    });
+  }
+
+  async sshDisconnect(sessionId: string) {
+    return this.request<{ success: boolean }>('/ssh/disconnect', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  }
+
+  async sshGetSessions() {
+    return this.request<Array<{
+      sessionId: string;
+      host: string;
+      port: number;
+      username: string;
+      connectedAt: string;
+    }>>('/ssh/sessions');
+  }
+
+  async sshListFiles(sessionId: string, path: string) {
+    return this.request<{ path: string; files: any[] }>(
+      `/ssh/files?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`
+    );
+  }
+
+  async sshReadFile(sessionId: string, path: string) {
+    return this.request<{ content: string; path: string }>(
+      `/ssh/files/read?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`
+    );
+  }
+
+  async sshWriteFile(sessionId: string, path: string, content: string) {
+    return this.request<{ success: boolean; path: string }>('/ssh/files/write', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, path, content }),
+    });
+  }
+
+  async sshMkdir(sessionId: string, path: string) {
+    return this.request<{ success: boolean }>('/ssh/files/mkdir', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, path }),
+    });
+  }
+
+  async sshDelete(sessionId: string, path: string, isDirectory: boolean) {
+    return this.request<{ success: boolean }>('/ssh/files/delete', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, path, isDirectory }),
+    });
+  }
+
+  async sshRename(sessionId: string, oldPath: string, newPath: string) {
+    return this.request<{ success: boolean }>('/ssh/files/rename', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, path: oldPath, newPath }),
+    });
+  }
+
+  async sshDownload(sessionId: string, path: string) {
+    window.open(
+      `${API_BASE}/ssh/files/download?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`,
+      '_blank'
+    );
+  }
+
+  async sshExec(sessionId: string, command: string) {
+    return this.request<{ stdout: string; stderr: string; code: number }>('/ssh/exec', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, command }),
+    });
+  }
 }
 
 export const api = new ApiClient();

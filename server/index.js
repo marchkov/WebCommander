@@ -6,6 +6,7 @@ const fs = require('fs');
 const multer = require('multer');
 const mime = require('mime-types');
 const archiver = require('archiver');
+const SSHManager = require('./sshManager');
 const config = require('../config.json');
 
 const app = express();
@@ -437,6 +438,197 @@ app.get('/api/files/info', requireAuth, (req, res) => {
       accessed: stats.atime,
       permissions: stats.mode.toString(8).slice(-3)
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============ SSH ROUTES ============
+
+// Подключение к SSH
+app.post('/api/ssh/connect', requireAuth, async (req, res) => {
+  const { sessionId, host, port, username, password, privateKey, passphrase } = req.body;
+  
+  if (!sessionId || !host || !username) {
+    return res.status(400).json({ error: 'sessionId, host and username are required' });
+  }
+  
+  try {
+    const result = await SSHManager.connect(sessionId, {
+      host,
+      port: port || 22,
+      username,
+      password,
+      privateKey,
+      passphrase,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Отключение от SSH
+app.post('/api/ssh/disconnect', requireAuth, (req, res) => {
+  const { sessionId } = req.body;
+  
+  try {
+    SSHManager.disconnect(sessionId);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Список активных сессий
+app.get('/api/ssh/sessions', requireAuth, (req, res) => {
+  res.json(SSHManager.getActiveSessions());
+});
+
+// Листинг директории через SSH
+app.get('/api/ssh/files', requireAuth, async (req, res) => {
+  const { sessionId, path: dirPath } = req.query;
+  
+  try {
+    const files = await SSHManager.listDir(sessionId, dirPath || '~');
+    res.json({ path: dirPath || '~', files });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Чтение файла через SSH
+app.get('/api/ssh/files/read', requireAuth, async (req, res) => {
+  const { sessionId, path: filePath } = req.query;
+  
+  try {
+    const content = await SSHManager.readFile(sessionId, filePath);
+    res.json({ content, path: filePath });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Запись файла через SSH
+app.post('/api/ssh/files/write', requireAuth, async (req, res) => {
+  const { sessionId, path: filePath, content } = req.body;
+  
+  try {
+    await SSHManager.writeFile(sessionId, filePath, content);
+    res.json({ success: true, path: filePath });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создание директории через SSH
+app.post('/api/ssh/files/mkdir', requireAuth, async (req, res) => {
+  const { sessionId, path: dirPath } = req.body;
+  
+  try {
+    await SSHManager.mkdir(sessionId, dirPath);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удаление через SSH
+app.post('/api/ssh/files/delete', requireAuth, async (req, res) => {
+  const { sessionId, path: targetPath, isDirectory } = req.body;
+  
+  try {
+    await SSHManager.delete(sessionId, targetPath, isDirectory);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Переименование через SSH
+app.post('/api/ssh/files/rename', requireAuth, async (req, res) => {
+  const { sessionId, path: oldPath, newPath } = req.body;
+  
+  try {
+    await SSHManager.rename(sessionId, oldPath, newPath);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Скачивание файла через SSH
+app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
+  const { sessionId, path: filePath } = req.query;
+  
+  try {
+    const buffer = await SSHManager.downloadFile(sessionId, filePath);
+    const fileName = path.basename(filePath);
+    const mimeType = mime.lookup(filePath) || 'application/octet-stream';
+    
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Загрузка файла через SSH
+app.post('/api/ssh/files/upload', requireAuth, async (req, res) => {
+  const { sessionId, path: filePath } = req.body;
+  
+  try {
+    // Получаем буфер из запроса
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', async () => {
+      const buffer = Buffer.concat(chunks);
+      
+      try {
+        await SSHManager.uploadFile(sessionId, filePath, buffer);
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Информация о файле через SSH
+app.get('/api/ssh/files/info', requireAuth, async (req, res) => {
+  const { sessionId, path: filePath } = req.query;
+  
+  try {
+    const info = await SSHManager.stat(sessionId, filePath);
+    res.json(info);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Трансфер между локальным и SSH
+app.post('/api/ssh/transfer', requireAuth, async (req, res) => {
+  const { sessionId, sourcePath, destPath, direction } = req.body;
+  
+  try {
+    await SSHManager.transferFile(sessionId, sourcePath, destPath, direction);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Выполнение команды через SSH
+app.post('/api/ssh/exec', requireAuth, async (req, res) => {
+  const { sessionId, command } = req.body;
+  
+  try {
+    const result = await SSHManager.exec(sessionId, command);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -5,36 +5,31 @@ import Modal from './components/Modal';
 import StatusBar from './components/StatusBar';
 import Login from './components/Login';
 import FileEditor from './components/FileEditor';
+import SSHConnectModal from './components/SSHConnectModal';
 import { api } from './api/client';
-import { FileItem } from './types';
+import { FileItem, PanelState } from './types';
 
 type PanelSide = 'left' | 'right';
-
-interface PanelState {
-  currentPath: string;
-  selectedItems: string[];
-  files: FileItem[];
-  sortBy: string;
-  sortOrder: 'asc' | 'desc';
-}
 
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [activePanel, setActivePanel] = useState<PanelSide>('left');
   const [leftPanel, setLeftPanel] = useState<PanelState>({
-    currentPath: '',
+    currentPath: '/',
     selectedItems: [],
     files: [],
     sortBy: 'name',
     sortOrder: 'asc',
+    mode: 'local',
   });
   const [rightPanel, setRightPanel] = useState<PanelState>({
-    currentPath: '',
+    currentPath: '/',
     selectedItems: [],
     files: [],
     sortBy: 'name',
     sortOrder: 'asc',
+    mode: 'local',
   });
 
   const [modal, setModal] = useState<{
@@ -46,9 +41,14 @@ function App() {
     action?: (value: string) => void;
   }>({ isOpen: false, type: 'input', title: '' });
 
-  const [editor, setEditor] = useState<{ isOpen: boolean; filePath: string }>({
+  const [editor, setEditor] = useState<{ isOpen: boolean; filePath: string; sessionId?: string }>({
     isOpen: false,
     filePath: '',
+  });
+
+  const [sshModal, setSSHModal] = useState<{ isOpen: boolean; targetPanel: PanelSide }>({
+    isOpen: false,
+    targetPanel: 'left',
   });
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -94,18 +94,17 @@ function App() {
 
   const loadInitialData = async () => {
     try {
-      // Load root directory for both panels
       const leftData = await api.listFiles('/');
       setLeftPanel(prev => ({
         ...prev,
-        currentPath: '/',
+        currentPath: leftData.path,
         files: leftData.files,
       }));
 
       const rightData = await api.listFiles('/');
       setRightPanel(prev => ({
         ...prev,
-        currentPath: '/',
+        currentPath: rightData.path,
         files: rightData.files,
       }));
     } catch (err) {
@@ -129,23 +128,36 @@ function App() {
     }
   };
 
+  const setPanelState = (panel: PanelSide, state: PanelState) => {
+    if (panel === 'left') {
+      setLeftPanel(state);
+    } else {
+      setRightPanel(state);
+    }
+  };
+
   const loadDirectory = async (path: string, panel: PanelSide) => {
+    const panelState = panel === 'left' ? leftPanel : rightPanel;
+    
     try {
-      const data = await api.listFiles(path);
-      if (panel === 'left') {
-        setLeftPanel(prev => ({
-          ...prev,
+      if (panelState.mode === 'ssh' && panelState.sshSessionId) {
+        // SSH mode
+        const data = await api.sshListFiles(panelState.sshSessionId, path);
+        setPanelState(panel, {
+          ...panelState,
           currentPath: data.path,
           files: data.files,
           selectedItems: [],
-        }));
+        });
       } else {
-        setRightPanel(prev => ({
-          ...prev,
+        // Local mode
+        const data = await api.listFiles(path);
+        setPanelState(panel, {
+          ...panelState,
           currentPath: data.path,
           files: data.files,
           selectedItems: [],
-        }));
+        });
       }
     } catch (err) {
       showToast('Failed to load directory', 'error');
@@ -171,18 +183,12 @@ function App() {
     const panel = getActivePanelState();
     
     if (folderId === '..') {
-      // Go up
       const parentPath = panel.currentPath.split('/').slice(0, -1).join('/') || '/';
       await loadDirectory(parentPath, activePanel);
     } else if (folderId === null) {
-      // Go to root
-      await loadDirectory('/', activePanel);
+      await loadDirectory(panel.mode === 'ssh' ? '~' : '/', activePanel);
     } else {
-      // Go into folder
-      const folder = panel.files.find(f => f.id === folderId);
-      if (folder) {
-        await loadDirectory(folder.id, activePanel);
-      }
+      await loadDirectory(folderId, activePanel);
     }
   };
 
@@ -203,6 +209,50 @@ function App() {
     setActivePanel(activePanel === 'left' ? 'right' : 'left');
   };
 
+  const handleToggleSSH = (panel: PanelSide) => {
+    const panelState = panel === 'left' ? leftPanel : rightPanel;
+    
+    if (panelState.mode === 'ssh') {
+      // Disconnect from SSH
+      if (panelState.sshSessionId) {
+        api.sshDisconnect(panelState.sshSessionId).catch(console.error);
+      }
+      // Switch back to local
+      setPanelState(panel, {
+        ...panelState,
+        mode: 'local',
+        sshSessionId: undefined,
+        sshHost: undefined,
+        sshUser: undefined,
+        currentPath: '/',
+        selectedItems: [],
+      });
+      loadDirectory('/', panel);
+      showToast('Switched to local mode', 'info');
+    } else {
+      // Open SSH connect modal
+      setSSHModal({ isOpen: true, targetPanel: panel });
+    }
+  };
+
+  const handleSSHConnect = async (sessionId: string, host: string, sshUser: string) => {
+    const panel = sshModal.targetPanel;
+    
+    setPanelState(panel, {
+      ...(panel === 'left' ? leftPanel : rightPanel),
+      mode: 'ssh',
+      sshSessionId: sessionId,
+      sshHost: host,
+      sshUser: sshUser,
+      currentPath: '~',
+      selectedItems: [],
+    });
+    
+    await loadDirectory('~', panel);
+    setSSHModal({ isOpen: false, targetPanel: 'left' });
+    showToast(`Connected to ${host}`, 'success');
+  };
+
   const handleCopy = async () => {
     const panel = getActivePanelState();
     const targetPanel = getInactivePanelState();
@@ -210,13 +260,33 @@ function App() {
     if (panel.selectedItems.length === 0) return;
 
     try {
-      for (const itemId of panel.selectedItems) {
-        const item = panel.files.find(f => f.id === itemId);
-        if (item) {
-          const destPath = `${targetPanel.currentPath}/${item.name}`;
-          await api.copy(item.id, destPath);
+      if (panel.mode === 'local' && targetPanel.mode === 'local') {
+        // Local to Local
+        for (const itemId of panel.selectedItems) {
+          const item = panel.files.find(f => f.id === itemId);
+          if (item) {
+            const destPath = `${targetPanel.currentPath}/${item.name}`;
+            await api.copy(item.id, destPath);
+          }
         }
+      } else if (panel.mode === 'ssh' && targetPanel.mode === 'local') {
+        // SSH to Local - download files
+        for (const itemId of panel.selectedItems) {
+          const item = panel.files.find(f => f.id === itemId);
+          if (item && panel.sshSessionId) {
+            await api.sshDownload(panel.sshSessionId, item.id);
+          }
+        }
+      } else if (panel.mode === 'local' && targetPanel.mode === 'ssh') {
+        // Local to SSH - upload files
+        showToast('Upload to SSH not yet implemented', 'info');
+        return;
+      } else {
+        // SSH to SSH
+        showToast('SSH to SSH transfer not yet implemented', 'info');
+        return;
       }
+      
       await loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left');
       showToast(`Copied ${panel.selectedItems.length} item(s)`, 'success');
     } catch (err) {
@@ -231,13 +301,19 @@ function App() {
     if (panel.selectedItems.length === 0) return;
 
     try {
-      for (const itemId of panel.selectedItems) {
-        const item = panel.files.find(f => f.id === itemId);
-        if (item) {
-          const destPath = `${targetPanel.currentPath}/${item.name}`;
-          await api.move(item.id, destPath);
+      if (panel.mode === 'local' && targetPanel.mode === 'local') {
+        for (const itemId of panel.selectedItems) {
+          const item = panel.files.find(f => f.id === itemId);
+          if (item) {
+            const destPath = `${targetPanel.currentPath}/${item.name}`;
+            await api.move(item.id, destPath);
+          }
         }
+      } else {
+        showToast('Cross-mode move not supported. Use copy + delete.', 'info');
+        return;
       }
+      
       await loadDirectory(panel.currentPath, activePanel);
       await loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left');
       showToast(`Moved ${panel.selectedItems.length} item(s)`, 'success');
@@ -257,9 +333,19 @@ function App() {
       message: `Are you sure you want to delete ${panel.selectedItems.length} item(s)? This action cannot be undone.`,
       action: async () => {
         try {
-          for (const itemId of panel.selectedItems) {
-            await api.delete(itemId);
+          if (panel.mode === 'ssh' && panel.sshSessionId) {
+            for (const itemId of panel.selectedItems) {
+              const item = panel.files.find(f => f.id === itemId);
+              if (item) {
+                await api.sshDelete(panel.sshSessionId, item.id, item.type === 'folder');
+              }
+            }
+          } else {
+            for (const itemId of panel.selectedItems) {
+              await api.delete(itemId);
+            }
           }
+          
           await loadDirectory(panel.currentPath, activePanel);
           showToast(`Deleted ${panel.selectedItems.length} item(s)`, 'success');
           setModal({ isOpen: false, type: 'input', title: '' });
@@ -280,7 +366,14 @@ function App() {
         if (!name) return;
         try {
           const panel = getActivePanelState();
-          await api.mkdir(panel.currentPath, name);
+          
+          if (panel.mode === 'ssh' && panel.sshSessionId) {
+            const newPath = `${panel.currentPath}/${name}`;
+            await api.sshMkdir(panel.sshSessionId, newPath);
+          } else {
+            await api.mkdir(panel.currentPath, name);
+          }
+          
           await loadDirectory(panel.currentPath, activePanel);
           showToast(`Created folder "${name}"`, 'success');
           setModal({ isOpen: false, type: 'input', title: '' });
@@ -302,8 +395,11 @@ function App() {
     const file = panel.files.find(f => f.id === fileId);
     
     if (file?.type === 'file') {
-      // Open in editor
-      setEditor({ isOpen: true, filePath: file.id });
+      if (panel.mode === 'ssh' && panel.sshSessionId) {
+        setEditor({ isOpen: true, filePath: file.id, sessionId: panel.sshSessionId });
+      } else {
+        setEditor({ isOpen: true, filePath: file.id });
+      }
     }
   };
 
@@ -312,8 +408,14 @@ function App() {
     if (panel.selectedItems.length === 0) return;
 
     try {
-      for (const itemId of panel.selectedItems) {
-        await api.download(itemId);
+      if (panel.mode === 'ssh' && panel.sshSessionId) {
+        for (const itemId of panel.selectedItems) {
+          await api.sshDownload(panel.sshSessionId, itemId);
+        }
+      } else {
+        for (const itemId of panel.selectedItems) {
+          await api.download(itemId);
+        }
       }
       showToast('Download started', 'info');
     } catch (err) {
@@ -323,7 +425,7 @@ function App() {
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (modal.isOpen || editor.isOpen) return;
+    if (modal.isOpen || editor.isOpen || sshModal.isOpen) return;
     
     switch (e.key) {
       case 'F5':
@@ -347,7 +449,7 @@ function App() {
         setActivePanel(prev => prev === 'left' ? 'right' : 'left');
         break;
     }
-  }, [activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen]);
+  }, [activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -368,6 +470,10 @@ function App() {
         onMkdir={handleMkdir}
         onRefresh={handleRefresh}
         onSwap={handleSwap}
+        onToggleSSHLeft={() => handleToggleSSH('left')}
+        onToggleSSHRight={() => handleToggleSSH('right')}
+        leftMode={leftPanel.mode}
+        rightMode={rightPanel.mode}
         hasSelection={getActivePanelState().selectedItems.length > 0}
       />
 
@@ -387,6 +493,9 @@ function App() {
             sortOrder={leftPanel.sortOrder}
             onSort={handleSort}
             onDoubleClick={handleFileDoubleClick}
+            mode={leftPanel.mode}
+            sshHost={leftPanel.sshHost}
+            sshUser={leftPanel.sshUser}
           />
         </div>
         <div className="flex-1 min-w-0">
@@ -403,6 +512,9 @@ function App() {
             sortOrder={rightPanel.sortOrder}
             onSort={handleSort}
             onDoubleClick={handleFileDoubleClick}
+            mode={rightPanel.mode}
+            sshHost={rightPanel.sshHost}
+            sshUser={rightPanel.sshUser}
           />
         </div>
       </div>
@@ -426,10 +538,18 @@ function App() {
         onConfirm={(value) => modal.action?.(value)}
       />
 
+      {/* SSH Connect Modal */}
+      <SSHConnectModal
+        isOpen={sshModal.isOpen}
+        onClose={() => setSSHModal({ isOpen: false, targetPanel: 'left' })}
+        onConnect={handleSSHConnect}
+      />
+
       {/* File Editor */}
       {editor.isOpen && (
         <FileEditor
           filePath={editor.filePath}
+          sessionId={editor.sessionId}
           onClose={() => setEditor({ isOpen: false, filePath: '' })}
           onSave={() => loadDirectory(getActivePanelState().currentPath, activePanel)}
         />

@@ -12,6 +12,7 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.98.0",
+    "@types/ssh2": "^1.15.6",
     "archiver": "^8.0.0",
     "canvas-confetti": "^1.9.3",
     "cors": "^2.8.6",
@@ -26,6 +27,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
     "recharts": "^2.10.0",
+    "ssh2": "^1.17.0",
     "unzipper": "^0.12.5",
     "uuid": "^9.0.1"
   },

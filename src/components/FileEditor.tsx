@@ -3,11 +3,12 @@ import { api } from '../api/client';
 
 interface FileEditorProps {
   filePath: string;
+  sessionId?: string;
   onClose: () => void;
   onSave: () => void;
 }
 
-const FileEditor: React.FC<FileEditorProps> = ({ filePath, onClose, onSave }) => {
+const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, onSave }) => {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -21,7 +22,12 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, onClose, onSave }) =>
   const loadFile = async () => {
     setLoading(true);
     try {
-      const result = await api.readFile(filePath);
+      let result;
+      if (sessionId) {
+        result = await api.sshReadFile(sessionId, filePath);
+      } else {
+        result = await api.readFile(filePath);
+      }
       setContent(result.content);
       setModified(false);
     } catch (err) {
@@ -34,7 +40,11 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, onClose, onSave }) =>
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.writeFile(filePath, content);
+      if (sessionId) {
+        await api.sshWriteFile(sessionId, filePath, content);
+      } else {
+        await api.writeFile(filePath, content);
+      }
       setModified(false);
       onSave();
     } catch (err) {
@@ -70,8 +80,13 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, onClose, onSave }) =>
       {/* Editor Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700">
         <div className="flex items-center gap-3">
-          <i className="fa-solid fa-file-code text-cyan-400"></i>
+          {sessionId ? (
+            <i className="fa-solid fa-terminal text-green-400"></i>
+          ) : (
+            <i className="fa-solid fa-file-code text-cyan-400"></i>
+          )}
           <span className="text-sm font-medium text-gray-200 truncate max-w-md">
+            {sessionId && <span className="text-green-400 mr-2">[SSH]</span>}
             {filePath}
           </span>
           {modified && (

@@ -7,6 +7,10 @@ interface ToolbarProps {
   onMkdir: () => void;
   onRefresh: () => void;
   onSwap: () => void;
+  onToggleSSHLeft: () => void;
+  onToggleSSHRight: () => void;
+  leftMode: 'local' | 'ssh';
+  rightMode: 'local' | 'ssh';
   hasSelection: boolean;
 }
 
@@ -17,6 +21,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onMkdir,
   onRefresh,
   onSwap,
+  onToggleSSHLeft,
+  onToggleSSHRight,
+  leftMode,
+  rightMode,
   hasSelection,
 }) => {
   const buttons = [
@@ -57,6 +65,35 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <span className="hidden md:inline text-xs">{btn.label.split(' ')[0]}</span>
         </button>
       ))}
+
+      <div className="h-5 w-px bg-gray-700/50 mx-2"></div>
+
+      {/* SSH Toggle Buttons */}
+      <button
+        onClick={onToggleSSHLeft}
+        title="Toggle SSH for Left Panel"
+        className={`px-3 py-1.5 rounded text-sm transition-all duration-150 ${
+          leftMode === 'ssh'
+            ? 'bg-green-900/40 text-green-400 border border-green-700/50'
+            : 'text-gray-400 hover:text-green-400 hover:bg-gray-700/50'
+        }`}
+      >
+        <i className="fa-solid fa-terminal mr-1.5"></i>
+        <span className="hidden lg:inline text-xs">L: {leftMode === 'ssh' ? 'SSH' : 'Local'}</span>
+      </button>
+
+      <button
+        onClick={onToggleSSHRight}
+        title="Toggle SSH for Right Panel"
+        className={`px-3 py-1.5 rounded text-sm transition-all duration-150 ${
+          rightMode === 'ssh'
+            ? 'bg-green-900/40 text-green-400 border border-green-700/50'
+            : 'text-gray-400 hover:text-green-400 hover:bg-gray-700/50'
+        }`}
+      >
+        <i className="fa-solid fa-terminal mr-1.5"></i>
+        <span className="hidden lg:inline text-xs">R: {rightMode === 'ssh' ? 'SSH' : 'Local'}</span>
+      </button>
 
       <div className="ml-auto flex items-center gap-3">
         <div className="hidden lg:flex items-center gap-2 text-xs text-gray-500">

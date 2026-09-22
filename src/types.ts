@@ -3,17 +3,22 @@ export interface FileItem {
   name: string;
   type: 'file' | 'folder';
   size: number;
-  modified: Date;
+  modified: Date | string;
   extension?: string;
   parentId: string | null;
+  permissions?: string;
+  uid?: number;
+  gid?: number;
 }
 
 export interface PanelState {
-  currentPath: string[];
+  currentPath: string;
   selectedItems: string[];
   files: FileItem[];
-}
-
-export interface FileSystem {
-  [path: string]: FileItem[];
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+  mode: 'local' | 'ssh';
+  sshSessionId?: string;
+  sshHost?: string;
+  sshUser?: string;
 }
