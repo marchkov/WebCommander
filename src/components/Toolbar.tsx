@@ -5,7 +5,6 @@ interface ToolbarProps {
   onMove: () => void;
   onDelete: () => void;
   onMkdir: () => void;
-  onNewFile: () => void;
   onRefresh: () => void;
   onSwap: () => void;
   hasSelection: boolean;
@@ -16,7 +15,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onMove,
   onDelete,
   onMkdir,
-  onNewFile,
   onRefresh,
   onSwap,
   hasSelection,
@@ -26,7 +24,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
     { icon: 'fa-arrows-left-right', label: 'Move (F6)', action: onMove, disabled: !hasSelection, color: 'hover:text-blue-400' },
     { icon: 'fa-trash', label: 'Delete (F8)', action: onDelete, disabled: !hasSelection, color: 'hover:text-red-400' },
     { icon: 'fa-folder-plus', label: 'New Folder (F7)', action: onMkdir, disabled: false, color: 'hover:text-yellow-400' },
-    { icon: 'fa-file-circle-plus', label: 'New File', action: onNewFile, disabled: false, color: 'hover:text-green-400' },
     { icon: 'fa-arrows-rotate', label: 'Refresh (Ctrl+R)', action: onRefresh, disabled: false, color: 'hover:text-emerald-400' },
     { icon: 'fa-right-left', label: 'Swap Panels', action: onSwap, disabled: false, color: 'hover:text-purple-400' },
   ];

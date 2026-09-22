@@ -1,5 +1,9 @@
 node_modules/
-.next/
 dist/
-build/
+.env
+config.local.json
 *.log
+.DS_Store
+Thumbs.db
+.next/
+build/

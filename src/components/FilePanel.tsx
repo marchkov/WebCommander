@@ -4,7 +4,7 @@ import { FileItem } from '../types';
 interface FilePanelProps {
   title: string;
   files: FileItem[];
-  currentPath: string[];
+  currentPath: string;
   selectedItems: string[];
   isActive: boolean;
   onSelect: (id: string, multi: boolean) => void;
@@ -13,6 +13,7 @@ interface FilePanelProps {
   sortBy: string;
   sortOrder: 'asc' | 'desc';
   onSort: (column: string) => void;
+  onDoubleClick?: (fileId: string) => void;
 }
 
 function formatSize(bytes: number): string {
@@ -27,12 +28,13 @@ function formatSize(bytes: number): string {
   return `${size.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
+function formatDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }) + ' ' + date.toLocaleTimeString('en-US', {
+  }) + ' ' + d.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -90,6 +92,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
   sortBy,
   sortOrder,
   onSort,
+  onDoubleClick,
 }) => {
   const sortedFiles = [...files].sort((a, b) => {
     // Folders first
@@ -105,7 +108,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
         comparison = a.size - b.size;
         break;
       case 'date':
-        comparison = a.modified.getTime() - b.modified.getTime();
+        comparison = new Date(a.modified).getTime() - new Date(b.modified).getTime();
         break;
       case 'ext':
         comparison = (a.extension || '').localeCompare(b.extension || '');
@@ -120,6 +123,8 @@ const FilePanel: React.FC<FilePanelProps> = ({
     if (sortBy !== column) return <span className="text-gray-600 ml-1">↕</span>;
     return <span className="text-cyan-400 ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
+
+  const pathSegments = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
 
   return (
     <div
@@ -150,15 +155,12 @@ const FilePanel: React.FC<FilePanelProps> = ({
         >
           <i className="fa-solid fa-house text-[10px]"></i>
         </button>
-        {currentPath.map((segment, index) => (
+        {pathSegments.map((segment, index) => (
           <React.Fragment key={index}>
             <span className="text-gray-600 text-xs">/</span>
-            <button
-              onClick={() => onNavigate(currentPath[index] === segment ? segment : segment)}
-              className="text-xs text-gray-300 hover:text-cyan-300 font-mono truncate max-w-[100px]"
-            >
+            <span className="text-xs text-gray-300 font-mono truncate max-w-[100px]">
               {segment}
-            </button>
+            </span>
           </React.Fragment>
         ))}
       </div>
@@ -194,7 +196,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
       {/* File List */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {/* Parent directory link */}
-        {currentPath.length > 0 && (
+        {currentPath !== '/' && (
           <div
             className="grid grid-cols-[1fr_80px_140px_60px] px-3 py-1.5 hover:bg-gray-700/30 cursor-pointer items-center border-b border-gray-800/30"
             onDoubleClick={() => onNavigate('..')}
@@ -218,7 +220,13 @@ const FilePanel: React.FC<FilePanelProps> = ({
                 : 'hover:bg-gray-700/20 border-l-2 border-l-transparent'
             }`}
             onClick={(e) => onSelect(item.id, e.ctrlKey || e.metaKey)}
-            onDoubleClick={() => item.type === 'folder' && onNavigate(item.id)}
+            onDoubleClick={() => {
+              if (item.type === 'folder') {
+                onNavigate(item.id);
+              } else if (onDoubleClick) {
+                onDoubleClick(item.id);
+              }
+            }}
           >
             <div className="flex items-center gap-2 min-w-0">
               <i className={`fa-solid ${getFileIcon(item)} ${getIconColor(item)} text-sm w-4 text-center flex-shrink-0`}></i>
