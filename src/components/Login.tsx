@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api/client';
+import { FileItem } from '../types';
 
 interface LoginProps {
   onLoginSuccess: (username: string) => void;
@@ -96,6 +97,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   <span className="text-sm text-red-300">{error}</span>
                 </div>
               )}
+
+              <div className="flex items-center gap-2 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+                <i className="fa-solid fa-info-circle text-blue-400"></i>
+                <span className="text-sm text-blue-300">
+                  {api.isDemoMode() 
+                    ? 'Demo mode active - no server required'
+                    : 'Connect to server for full functionality'}
+                </span>
+              </div>
 
               <button
                 type="submit"

@@ -1,4 +1,5 @@
 import React from 'react';
+import { api } from '../api/client';
 
 interface ToolbarProps {
   onCopy: () => void;
@@ -96,6 +97,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
       </button>
 
       <div className="ml-auto flex items-center gap-3">
+        {api.isDemoMode() && (
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-yellow-900/30 border border-yellow-700/50 rounded text-xs text-yellow-300">
+            <i className="fa-solid fa-flask"></i>
+            <span className="hidden md:inline">Demo Mode</span>
+          </div>
+        )}
         <div className="hidden lg:flex items-center gap-2 text-xs text-gray-500">
           <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F5</span>
           <span>Copy</span>

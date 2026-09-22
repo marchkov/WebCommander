@@ -63,6 +63,9 @@ function App() {
     checkAuth();
   }, []);
 
+  // Check if in demo mode
+  const isDemoMode = api.isDemoMode();
+
   const checkAuth = async () => {
     try {
       const result = await api.checkAuth();
