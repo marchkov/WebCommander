@@ -645,7 +645,7 @@ if (process.env.NODE_ENV === 'production') {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`DockCommander server running on port ${PORT}`);
+  console.log(`WebCommander server running on port ${PORT}`);
   console.log(`Root path: ${config.rootPath}`);
   console.log(`Auth enabled: ${config.auth.enabled}`);
 });

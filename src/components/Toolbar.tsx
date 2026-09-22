@@ -43,7 +43,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <i className="fa-solid fa-layer-group text-white text-xs"></i>
         </div>
         <span className="text-sm font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-          DockCommander
+          WebCommander
         </span>
       </div>
       

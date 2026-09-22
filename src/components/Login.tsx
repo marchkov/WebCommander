@@ -43,7 +43,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               <i className="fa-solid fa-layer-group text-white text-2xl"></i>
             </div>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-              DockCommander
+              WebCommander
             </h1>
             <p className="text-sm text-gray-400 mt-2">File Manager</p>
           </div>
@@ -122,7 +122,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         </div>
 
         <p className="text-center text-xs text-gray-600 mt-6">
-          DockCommander v1.0 • Secure File Manager
+          WebCommander v1.0 • Secure File Manager
         </p>
       </div>
     </div>

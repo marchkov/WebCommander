@@ -23,7 +23,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ leftPath, rightPath, totalFiles, 
       <div className="flex items-center gap-4 text-gray-500">
         <span>{totalFolders} folders</span>
         <span>{totalFiles} files</span>
-        <span className="text-gray-600">DockCommander v1.0</span>
+        <span className="text-gray-600">WebCommander v1.0</span>
       </div>
     </div>
   );

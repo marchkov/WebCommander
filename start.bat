@@ -1,6 +1,6 @@
 @echo off
 echo.
-echo  🚀 Starting DockCommander...
+echo  🚀 Starting WebCommander...
 echo.
 
 REM Check if node is installed

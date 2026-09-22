@@ -1,4 +1,4 @@
-# Инструкция по деплою DockCommander на сервер
+# Инструкция по деплою WebCommander на сервер
 
 ## 🚀 Быстрый старт
 
@@ -82,7 +82,7 @@ pm2 stop dockcommander     # Остановка
 
 ```ini
 [Unit]
-Description=DockCommander File Manager
+Description=WebCommander File Manager
 After=network.target
 
 [Service]

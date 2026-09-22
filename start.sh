@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# DockCommander Start Script
+# WebCommander Start Script
 
-echo "🚀 Starting DockCommander..."
+echo "🚀 Starting WebCommander..."
 echo ""
 
 # Check if node is installed
