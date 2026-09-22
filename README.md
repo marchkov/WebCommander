@@ -58,20 +58,20 @@ npm install
 ```json
 {
   "port": 3001,
-  "rootPath": "/var/www",
+  "rootPath": "/srv/webcommander/files",
   "auth": {
     "enabled": true,
     "users": [
       {
         "username": "admin",
-        "password": "***REMOVED***"
+        "password": "<set-your-password>"
       }
     ],
-    "sessionSecret": "***REMOVED***",
+    "sessionSecret": "<set-random-session-secret>",
     "sessionMaxAge": 86400000
   },
   "security": {
-    "allowedPaths": ["/var/www", "/home"],
+    "allowedPaths": ["/srv/webcommander/files"],
     "blockedPaths": ["/etc", "/root", "/var/log"],
     "maxFileSize": 104857600,
     "allowedExtensions": ["*"]
@@ -133,7 +133,7 @@ NODE_ENV=production node server/index.js
 ### Важные рекомендации:
 
 1. **Измените sessionSecret** в config.json на случайную строку
-2. **Измените пароли** пользователей по умолчанию
+2. **Измените пароли** пользователей, особенно если используются демонстрационные значения
 3. **Настройте allowedPaths** - ограничьте доступ только нужными директориями
 4. **Используйте HTTPS** в production (настройте reverse proxy с SSL)
 5. **Запускайте от непривилегированного пользователя** (не root)

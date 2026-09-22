@@ -438,6 +438,18 @@ class ApiClient {
     );
   }
 
+  async sshTransfer(sessionId: string, sourcePath: string, destPath: string, direction: 'upload' | 'download') {
+    if (demoMode) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      return { success: true };
+    }
+
+    return this.request<{ success: boolean }>('/ssh/transfer', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, sourcePath, destPath, direction }),
+    });
+  }
+
   async sshExec(sessionId: string, command: string) {
     if (demoMode) {
       await new Promise(resolve => setTimeout(resolve, 300));

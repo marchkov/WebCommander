@@ -6,16 +6,16 @@
 
 ```bash
 # Скопируйте файлы на сервер через SCP, FTP или Git
-scp -r dockcommander user@server:/opt/
+scp -r WebCommander user@server:/opt/
 
 # Или через Git
-git clone <repository-url> /opt/dockcommander
+git clone <repository-url> /opt/WebCommander
 ```
 
 ### 2. Установка зависимостей
 
 ```bash
-cd /opt/dockcommander
+cd /opt/WebCommander
 npm install
 ```
 
@@ -28,10 +28,10 @@ nano config.json
 ```
 
 **Важные настройки:**
-- Измените `rootPath` на нужную директорию
-- Измените пароли пользователей
-- Измените `sessionSecret` на случайную строку
-- Настройте `allowedPaths` и `blockedPaths`
+- Измените `rootPath` на нужную директорию Linux, например `/srv/webcommander/files`
+- Укажите в `allowedPaths` только нужные директории
+- Измените пароли пользователей и `sessionSecret` на случайные значения
+- Убедитесь, что `blockedPaths` исключает системные каталоги
 
 ### 4. Сборка фронтенда
 
@@ -59,7 +59,7 @@ chmod +x start.sh
 npm install -g pm2
 
 # Запустите приложение
-pm2 start server/index.js --name dockcommander
+pm2 start server/index.js --name webcommander
 
 # Сохраните конфигурацию
 pm2 save
@@ -71,14 +71,14 @@ pm2 startup
 **Полезные команды PM2:**
 ```bash
 pm2 status              # Статус
-pm2 logs dockcommander  # Логи
-pm2 restart dockcommander  # Перезапуск
-pm2 stop dockcommander     # Остановка
+pm2 logs webcommander  # Логи
+pm2 restart webcommander  # Перезапуск
+pm2 stop webcommander     # Остановка
 ```
 
 #### Вариант 2: Systemd
 
-Создайте файл `/etc/systemd/system/dockcommander.service`:
+Создайте файл `/etc/systemd/system/webcommander.service`:
 
 ```ini
 [Unit]
@@ -88,7 +88,7 @@ After=network.target
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/dockcommander
+WorkingDirectory=/opt/WebCommander
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=10
@@ -101,9 +101,9 @@ WantedBy=multi-user.target
 Запустите:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable dockcommander
-sudo systemctl start dockcommander
-sudo systemctl status dockcommander
+sudo systemctl enable webcommander
+sudo systemctl start webcommander
+sudo systemctl status webcommander
 ```
 
 ## 🔐 Настройка Nginx reverse proxy
@@ -157,7 +157,7 @@ server {
 
     # Proxy settings
     location / {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

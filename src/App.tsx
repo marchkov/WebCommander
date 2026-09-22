@@ -182,11 +182,53 @@ function App() {
     setActivePanelState({ ...panel, selectedItems: newSelected });
   };
 
+  const getParentPath = (currentPath: string): string => {
+    const normalized = currentPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized || normalized === '/') return '/';
+
+    if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;
+    if (/^[A-Za-z]:\/$/.test(normalized)) return normalized;
+
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length === 0) return '/';
+
+    if (segments.length === 1) {
+      return /^[A-Za-z]:/.test(normalized) ? `${segments[0]}/` : '/';
+    }
+
+    if (/^[A-Za-z]:/.test(normalized)) {
+      const drive = normalized.split('/')[0];
+      const parentSegments = segments.slice(1, -1);
+      return parentSegments.length === 0 ? `${drive}/` : `${drive}/${parentSegments.join('/')}`;
+    }
+
+    return segments.slice(0, -1).join('/');
+  };
+
+  const joinPath = (basePath: string, name: string): string => {
+    if (!basePath || basePath === '/') {
+      return name.startsWith('/') ? name : `/${name}`;
+    }
+
+    const normalizedBase = basePath.replace(/\\/g, '/').replace(/\/+$/, '');
+    const normalizedName = name.replace(/\\/g, '/').replace(/^\/+/, '');
+
+    if (!normalizedName) {
+      return normalizedBase;
+    }
+
+    if (/^[A-Za-z]:$/.test(normalizedBase)) {
+      return `${normalizedBase}/${normalizedName}`;
+    }
+
+    return `${normalizedBase}/${normalizedName}`;
+  };
+
   const handleNavigate = async (folderId: string | null) => {
     const panel = getActivePanelState();
     
     if (folderId === '..') {
-      const parentPath = panel.currentPath.split('/').slice(0, -1).join('/') || '/';
+      const parentPath = getParentPath(panel.currentPath);
       await loadDirectory(parentPath, activePanel);
     } else if (folderId === null) {
       await loadDirectory(panel.mode === 'ssh' ? '~' : '/', activePanel);
@@ -206,10 +248,16 @@ function App() {
   };
 
   const handleSwap = () => {
-    const temp = leftPanel;
     setLeftPanel(rightPanel);
-    setRightPanel(temp);
-    setActivePanel(activePanel === 'left' ? 'right' : 'left');
+    setRightPanel(leftPanel);
+    setActivePanel(prev => (prev === 'left' ? 'right' : 'left'));
+  };
+
+  const refreshBothPanels = async () => {
+    await Promise.all([
+      loadDirectory(leftPanel.currentPath, 'left'),
+      loadDirectory(rightPanel.currentPath, 'right'),
+    ]);
   };
 
   const handleToggleSSH = (panel: PanelSide) => {
@@ -240,9 +288,15 @@ function App() {
 
   const handleSSHConnect = async (sessionId: string, host: string, sshUser: string) => {
     const panel = sshModal.targetPanel;
-    
+    const panelState = panel === 'left' ? leftPanel : rightPanel;
+
+    if (!sessionId || !host || !sshUser) {
+      showToast('SSH connection data is incomplete', 'error');
+      return;
+    }
+
     setPanelState(panel, {
-      ...(panel === 'left' ? leftPanel : rightPanel),
+      ...panelState,
       mode: 'ssh',
       sshSessionId: sessionId,
       sshHost: host,
@@ -250,10 +304,14 @@ function App() {
       currentPath: '~',
       selectedItems: [],
     });
-    
-    await loadDirectory('~', panel);
-    setSSHModal({ isOpen: false, targetPanel: 'left' });
-    showToast(`Connected to ${host}`, 'success');
+
+    try {
+      await loadDirectory('~', panel);
+      setSSHModal({ isOpen: false, targetPanel: 'left' });
+      showToast(`Connected to ${host}`, 'success');
+    } catch (err) {
+      showToast('Failed to load SSH directory', 'error');
+    }
   };
 
   const handleCopy = async () => {
@@ -268,7 +326,7 @@ function App() {
         for (const itemId of panel.selectedItems) {
           const item = panel.files.find(f => f.id === itemId);
           if (item) {
-            const destPath = `${targetPanel.currentPath}/${item.name}`;
+            const destPath = joinPath(targetPanel.currentPath, item.name);
             await api.copy(item.id, destPath);
           }
         }
@@ -282,17 +340,54 @@ function App() {
         }
       } else if (panel.mode === 'local' && targetPanel.mode === 'ssh') {
         // Local to SSH - upload files
-        showToast('Upload to SSH not yet implemented', 'info');
-        return;
+        if (!targetPanel.sshSessionId) {
+          showToast('Target SSH session is not active', 'error');
+          return;
+        }
+
+        for (const itemId of panel.selectedItems) {
+          const item = panel.files.find(f => f.id === itemId);
+          if (!item) continue;
+          if (item.type === 'folder') {
+            showToast('Folder upload to SSH is not supported yet', 'info');
+            return;
+          }
+
+          const destPath = joinPath(targetPanel.currentPath, item.name);
+          await api.sshTransfer(targetPanel.sshSessionId, item.id, destPath, 'upload');
+        }
+      } else if (panel.mode === 'ssh' && targetPanel.mode === 'ssh') {
+        // SSH to SSH on the same remote host
+        if (!panel.sshSessionId || !targetPanel.sshSessionId) {
+          showToast('SSH session is not active', 'error');
+          return;
+        }
+
+        if (panel.sshSessionId !== targetPanel.sshSessionId) {
+          showToast('SSH-to-SSH transfer between different hosts is not supported yet', 'info');
+          return;
+        }
+
+        for (const itemId of panel.selectedItems) {
+          const item = panel.files.find(f => f.id === itemId);
+          if (!item) continue;
+
+          const destPath = joinPath(targetPanel.currentPath, item.name);
+          const command = `cp -a "${item.id}" "${destPath}"`;
+          await api.sshExec(panel.sshSessionId, command);
+        }
       } else {
-        // SSH to SSH
-        showToast('SSH to SSH transfer not yet implemented', 'info');
+        showToast('Unsupported transfer mode', 'info');
         return;
       }
       
-      await loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left');
+      await Promise.all([
+        loadDirectory(panel.currentPath, activePanel),
+        loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left'),
+      ]);
       showToast(`Copied ${panel.selectedItems.length} item(s)`, 'success');
     } catch (err) {
+      console.error('Copy failed:', err);
       showToast('Copy failed', 'error');
     }
   };
@@ -308,7 +403,7 @@ function App() {
         for (const itemId of panel.selectedItems) {
           const item = panel.files.find(f => f.id === itemId);
           if (item) {
-            const destPath = `${targetPanel.currentPath}/${item.name}`;
+            const destPath = joinPath(targetPanel.currentPath, item.name);
             await api.move(item.id, destPath);
           }
         }
@@ -317,10 +412,13 @@ function App() {
         return;
       }
       
-      await loadDirectory(panel.currentPath, activePanel);
-      await loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left');
+      await Promise.all([
+        loadDirectory(panel.currentPath, activePanel),
+        loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left'),
+      ]);
       showToast(`Moved ${panel.selectedItems.length} item(s)`, 'success');
     } catch (err) {
+      console.error('Move failed:', err);
       showToast('Move failed', 'error');
     }
   };
@@ -353,6 +451,7 @@ function App() {
           showToast(`Deleted ${panel.selectedItems.length} item(s)`, 'success');
           setModal({ isOpen: false, type: 'input', title: '' });
         } catch (err) {
+          console.error('Delete failed:', err);
           showToast('Delete failed', 'error');
         }
       },
@@ -371,7 +470,7 @@ function App() {
           const panel = getActivePanelState();
           
           if (panel.mode === 'ssh' && panel.sshSessionId) {
-            const newPath = `${panel.currentPath}/${name}`;
+            const newPath = joinPath(panel.currentPath, name);
             await api.sshMkdir(panel.sshSessionId, newPath);
           } else {
             await api.mkdir(panel.currentPath, name);
@@ -381,6 +480,7 @@ function App() {
           showToast(`Created folder "${name}"`, 'success');
           setModal({ isOpen: false, type: 'input', title: '' });
         } catch (err) {
+          console.error('Create folder failed:', err);
           showToast('Failed to create folder', 'error');
         }
       },

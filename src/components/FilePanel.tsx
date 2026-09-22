@@ -130,7 +130,13 @@ const FilePanel: React.FC<FilePanelProps> = ({
     return <span className="text-cyan-400 ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const pathSegments = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
+  const normalizePathForDisplay = (value: string): string[] => {
+    const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized || normalized === '/') return [];
+    return normalized.split('/').filter(Boolean);
+  };
+
+  const pathSegments = normalizePathForDisplay(currentPath);
 
   return (
     <div

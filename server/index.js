@@ -7,6 +7,7 @@ const multer = require('multer');
 const mime = require('mime-types');
 const archiver = require('archiver');
 const SSHManager = require('./sshManager');
+const { validatePath } = require('./pathUtils');
 const config = require('../config.json');
 
 const app = express();
@@ -45,37 +46,19 @@ const requireAuth = (req, res, next) => {
 };
 
 // Security: Validate path
-const validatePath = (targetPath) => {
-  const resolvedPath = path.resolve(targetPath);
-  
-  // Check if path is within allowed paths
-  const isAllowed = config.security.allowedPaths.some(allowedPath => {
-    const resolvedAllowed = path.resolve(allowedPath);
-    return resolvedPath.startsWith(resolvedAllowed);
+const validateServerPath = (targetPath) => {
+  return validatePath(targetPath, {
+    rootPath: config.rootPath,
+    allowedPaths: config.security.allowedPaths,
+    blockedPaths: config.security.blockedPaths,
   });
-  
-  if (!isAllowed) {
-    return { valid: false, error: 'Path not in allowed directories' };
-  }
-  
-  // Check if path is blocked
-  const isBlocked = config.security.blockedPaths.some(blockedPath => {
-    const resolvedBlocked = path.resolve(blockedPath);
-    return resolvedPath.startsWith(resolvedBlocked);
-  });
-  
-  if (isBlocked) {
-    return { valid: false, error: 'Path is blocked' };
-  }
-  
-  return { valid: true, path: resolvedPath };
 };
 
 // Multer configuration for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const destPath = req.body.path || config.rootPath;
-    const validation = validatePath(destPath);
+    const validation = validateServerPath(destPath);
     
     if (!validation.valid) {
       return cb(new Error(validation.error));
@@ -145,7 +128,7 @@ app.get('/api/auth/check', (req, res) => {
 // List directory
 app.get('/api/files', requireAuth, (req, res) => {
   const dirPath = req.query.path || config.rootPath;
-  const validation = validatePath(dirPath);
+  const validation = validateServerPath(dirPath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -184,7 +167,7 @@ app.get('/api/files', requireAuth, (req, res) => {
 // Read file content
 app.get('/api/files/read', requireAuth, (req, res) => {
   const filePath = req.query.path;
-  const validation = validatePath(filePath);
+  const validation = validateServerPath(filePath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -211,7 +194,7 @@ app.get('/api/files/read', requireAuth, (req, res) => {
 // Write file content
 app.post('/api/files/write', requireAuth, (req, res) => {
   const { path: filePath, content } = req.body;
-  const validation = validatePath(filePath);
+  const validation = validateServerPath(filePath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -234,7 +217,7 @@ app.post('/api/files/write', requireAuth, (req, res) => {
 app.post('/api/files/mkdir', requireAuth, (req, res) => {
   const { path: dirPath, name } = req.body;
   const fullPath = path.join(dirPath, name);
-  const validation = validatePath(fullPath);
+  const validation = validateServerPath(fullPath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -255,7 +238,7 @@ app.post('/api/files/mkdir', requireAuth, (req, res) => {
 // Delete file or directory
 app.post('/api/files/delete', requireAuth, (req, res) => {
   const { path: targetPath } = req.body;
-  const validation = validatePath(targetPath);
+  const validation = validateServerPath(targetPath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -284,8 +267,8 @@ app.post('/api/files/delete', requireAuth, (req, res) => {
 app.post('/api/files/copy', requireAuth, (req, res) => {
   const { source, destination } = req.body;
   
-  const srcValidation = validatePath(source);
-  const destValidation = validatePath(destination);
+  const srcValidation = validateServerPath(source);
+  const destValidation = validateServerPath(destination);
   
   if (!srcValidation.valid || !destValidation.valid) {
     return res.status(403).json({ error: 'Invalid path' });
@@ -314,8 +297,8 @@ app.post('/api/files/copy', requireAuth, (req, res) => {
 app.post('/api/files/move', requireAuth, (req, res) => {
   const { source, destination } = req.body;
   
-  const srcValidation = validatePath(source);
-  const destValidation = validatePath(destination);
+  const srcValidation = validateServerPath(source);
+  const destValidation = validateServerPath(destination);
   
   if (!srcValidation.valid || !destValidation.valid) {
     return res.status(403).json({ error: 'Invalid path' });
@@ -336,7 +319,7 @@ app.post('/api/files/move', requireAuth, (req, res) => {
 // Rename file or directory
 app.post('/api/files/rename', requireAuth, (req, res) => {
   const { path: targetPath, newName } = req.body;
-  const validation = validatePath(targetPath);
+  const validation = validateServerPath(targetPath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -349,7 +332,7 @@ app.post('/api/files/rename', requireAuth, (req, res) => {
     
     const dir = path.dirname(validation.path);
     const newPath = path.join(dir, newName);
-    const newValidation = validatePath(newPath);
+    const newValidation = validateServerPath(newPath);
     
     if (!newValidation.valid) {
       return res.status(403).json({ error: 'Invalid new path' });
@@ -379,7 +362,7 @@ app.post('/api/files/upload', requireAuth, upload.single('file'), (req, res) => 
 // Download file
 app.get('/api/files/download', requireAuth, (req, res) => {
   const filePath = req.query.path;
-  const validation = validatePath(filePath);
+  const validation = validateServerPath(filePath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -415,7 +398,7 @@ app.get('/api/files/download', requireAuth, (req, res) => {
 // Get file info
 app.get('/api/files/info', requireAuth, (req, res) => {
   const filePath = req.query.path;
-  const validation = validatePath(filePath);
+  const validation = validateServerPath(filePath);
   
   if (!validation.valid) {
     return res.status(403).json({ error: validation.error });
@@ -638,7 +621,7 @@ app.post('/api/ssh/exec', requireAuth, async (req, res) => {
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../dist')));
   
-  app.get('*', (req, res) => {
+  app.get('/{*splat}', (req, res) => {
     res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
 }
