@@ -377,7 +377,7 @@ app.post('/api/files/move', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Source not found' });
     }
     if (error.statusCode === 409) {
-      return res.status(409).json({ error: error.message });
+      return res.status(409).json({ error: error.message, conflictType: error.conflictType });
     }
     res.status(500).json({ error: error.message });
   }
@@ -411,7 +411,7 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
       return res.status(403).json({ error: error.message });
     }
     if (error.statusCode === 409) {
-      return res.status(409).json({ error: error.message });
+      return res.status(409).json({ error: error.message, conflictType: error.conflictType });
     }
     if (error.code === 'ENOENT' || error.code === 'SSH_FX_NO_SUCH_FILE') {
       return res.status(404).json({ error: 'Source or destination path not found' });
