@@ -90,6 +90,11 @@ const createSftpProvider = sessionId => new SftpProvider({
   sessionId,
   sshManager: SSHManager,
 });
+const initializeSftpProvider = async sessionId => {
+  const provider = createSftpProvider(sessionId);
+  await provider.initialize();
+  return provider;
+};
 
 // Middleware
 app.use(cors({
@@ -504,7 +509,7 @@ app.get('/api/ssh/files', requireAuth, async (req, res) => {
   const { sessionId, path: dirPath } = req.query;
 
   try {
-    const provider = createSftpProvider(sessionId);
+    const provider = await initializeSftpProvider(sessionId);
     const remotePath = await provider.resolvePath(dirPath || '~');
     const files = await provider.list(remotePath);
     res.json({ path: remotePath, files });
@@ -518,7 +523,7 @@ app.get('/api/ssh/files/read', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
 
   try {
-    const content = await createSftpProvider(sessionId).read(filePath);
+    const content = await (await initializeSftpProvider(sessionId)).read(filePath);
     res.json({ content, path: filePath });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -530,7 +535,7 @@ app.post('/api/ssh/files/write', requireAuth, async (req, res) => {
   const { sessionId, path: filePath, content } = req.body;
 
   try {
-    await createSftpProvider(sessionId).write(filePath, content);
+    await (await initializeSftpProvider(sessionId)).write(filePath, content);
     res.json({ success: true, path: filePath });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -542,7 +547,7 @@ app.post('/api/ssh/files/mkdir', requireAuth, async (req, res) => {
   const { sessionId, path: dirPath } = req.body;
 
   try {
-    await createSftpProvider(sessionId).mkdir(dirPath);
+    await (await initializeSftpProvider(sessionId)).mkdir(dirPath);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -554,7 +559,7 @@ app.post('/api/ssh/files/delete', requireAuth, async (req, res) => {
   const { sessionId, path: targetPath, isDirectory } = req.body;
 
   try {
-    await createSftpProvider(sessionId).delete(targetPath, {
+    await (await initializeSftpProvider(sessionId)).delete(targetPath, {
       recursive: Boolean(isDirectory),
       force: true,
     });
@@ -569,7 +574,7 @@ app.post('/api/ssh/files/rename', requireAuth, async (req, res) => {
   const { sessionId, path: oldPath, newPath } = req.body;
 
   try {
-    await createSftpProvider(sessionId).rename(oldPath, newPath);
+    await (await initializeSftpProvider(sessionId)).rename(oldPath, newPath);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -581,7 +586,7 @@ app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
 
   try {
-    const provider = createSftpProvider(sessionId);
+    const provider = await initializeSftpProvider(sessionId);
     const info = await provider.stat(filePath);
     const fileName = path.posix.basename(info.path);
     const mimeType = mime.lookup(info.path) || 'application/octet-stream';
@@ -623,7 +628,7 @@ app.get('/api/ssh/files/info', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
 
   try {
-    const info = await createSftpProvider(sessionId).stat(filePath);
+    const info = await (await initializeSftpProvider(sessionId)).stat(filePath);
     res.json(info);
   } catch (error) {
     res.status(500).json({ error: error.message });

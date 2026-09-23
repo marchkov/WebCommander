@@ -76,7 +76,11 @@ async function createFixture() {
   const sftp = new FakeSftp(rootPath);
   const manager = {
     execCalls: 0,
-    getSftp: async () => sftp,
+    sftpCalls: 0,
+    getSftp: async () => {
+      manager.sftpCalls += 1;
+      return sftp;
+    },
     exec: async () => {
       manager.execCalls += 1;
       throw new Error('SFTP tests must not execute shell commands');
@@ -107,6 +111,41 @@ test('SftpProvider resolves home and remote paths with POSIX semantics', async (
   assert.equal(await provider.resolvePath('/var/../srv/files/'), '/srv/files');
 });
 
+test('SftpProvider initialization resolves home and is idempotent', async () => {
+  const { manager, provider } = await createFixture();
+
+  const first = await provider.initialize();
+  const second = await provider.ready();
+
+  assert.equal(first, provider);
+  assert.equal(second, provider);
+  assert.equal(provider.rootPath, '/home/test');
+  assert.equal(manager.sftpCalls, 1);
+});
+
+test('ordinary filesystem operations initialize SftpProvider automatically', async () => {
+  const { rootPath, manager, provider } = await createFixture();
+  await fs.promises.writeFile(path.join(rootPath, 'auto.txt'), 'automatic');
+
+  assert.equal((await provider.list('~')).length, 1);
+  assert.equal((await provider.stat('/home/test/auto.txt')).size, 9);
+  assert.equal(await provider.read('/home/test/auto.txt'), 'automatic');
+  assert.equal(manager.sftpCalls, 1);
+});
+
+test('SftpProvider streams fail clearly before initialization', async () => {
+  const { provider } = await createFixture();
+
+  assert.throws(
+    () => provider.createReadStream('/home/test/file.txt'),
+    /SftpProvider must be initialized before creating streams/,
+  );
+  assert.throws(
+    () => provider.createWriteStream('/home/test/file.txt'),
+    /SftpProvider must be initialized before creating streams/,
+  );
+});
+
 test('SftpProvider lists and stats entries', async () => {
   const { rootPath, provider } = await createFixture();
   await fs.promises.writeFile(path.join(rootPath, 'notes.txt'), 'hello');
@@ -130,7 +169,6 @@ test('SftpProvider lists and stats entries', async () => {
 
 test('SftpProvider reads, writes, creates, and renames files', async () => {
   const { rootPath, provider } = await createFixture();
-  await provider.resolvePath('~');
   await provider.mkdir('/home/test/created');
   await provider.write('/home/test/created/file.txt', 'content');
   assert.equal(await provider.read('/home/test/created/file.txt'), 'content');
@@ -155,7 +193,7 @@ test('SftpProvider deletes files and nested directories without exec', async () 
 
 test('SftpProvider exposes Node read and write streams', async () => {
   const { rootPath, provider } = await createFixture();
-  await provider.resolvePath('~');
+  await provider.initialize();
   const filePath = '/home/test/stream.txt';
   const writeStream = provider.createWriteStream(filePath);
   writeStream.end('streamed');

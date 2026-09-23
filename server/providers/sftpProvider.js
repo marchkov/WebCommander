@@ -10,7 +10,7 @@ function normalizeRemotePath(remotePath) {
 }
 
 /**
- * Future SFTP provider.
+ * SFTP filesystem provider.
  *
  * Remote paths are deliberately normalized with POSIX semantics. This avoids
  * using Windows path.join() when the server runs on a Windows host.
@@ -28,6 +28,30 @@ class SftpProvider extends FileProvider {
     this.sshManager = sshManager;
     this.sftp = sftp;
     this.rootPath = rootPath && rootPath !== '~' ? normalizeRemotePath(rootPath) : null;
+    this.initializationPromise = null;
+  }
+
+  async initialize() {
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    this.initializationPromise = (async () => {
+      const sftp = await this.getSftp();
+      this.rootPath = normalizeRemotePath(await this.call(sftp, 'realpath', '.'));
+      return this;
+    })();
+
+    try {
+      return await this.initializationPromise;
+    } catch (error) {
+      this.initializationPromise = null;
+      throw error;
+    }
+  }
+
+  async ready() {
+    return this.initialize();
   }
 
   async getSftp() {
@@ -38,12 +62,12 @@ class SftpProvider extends FileProvider {
   }
 
   async resolvePath(remotePath) {
-    const requestedPath = String(remotePath || '.');
-    const sftp = await this.getSftp();
+    await this.initialize();
+    return this.resolvePathAfterInitialization(remotePath);
+  }
 
-    if (!this.rootPath) {
-      this.rootPath = normalizeRemotePath(await this.call(sftp, 'realpath', '.'));
-    }
+  resolvePathAfterInitialization(remotePath) {
+    const requestedPath = String(remotePath || '.');
 
     if (requestedPath === '~') {
       return this.rootPath;
@@ -61,8 +85,9 @@ class SftpProvider extends FileProvider {
   }
 
   async list(remotePath) {
-    const resolvedPath = await this.resolvePath(remotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const sftp = this.sftp;
     const entries = await this.call(sftp, 'readdir', resolvedPath);
 
     return entries.map(entry => {
@@ -72,15 +97,17 @@ class SftpProvider extends FileProvider {
   }
 
   async stat(remotePath) {
-    const resolvedPath = await this.resolvePath(remotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const sftp = this.sftp;
     const attrs = await this.call(sftp, 'stat', resolvedPath);
     return this.toFileEntry(resolvedPath, path.posix.basename(resolvedPath), attrs, path.posix.dirname(resolvedPath));
   }
 
   async read(remotePath) {
-    const resolvedPath = await this.resolvePath(remotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const sftp = this.sftp;
     const stream = sftp.createReadStream(resolvedPath);
     let data = '';
 
@@ -92,22 +119,26 @@ class SftpProvider extends FileProvider {
   }
 
   async write(remotePath, data) {
-    const resolvedPath = await this.resolvePath(remotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const sftp = this.sftp;
     const stream = sftp.createWriteStream(resolvedPath);
+    const completion = this.waitForStream(stream);
     stream.end(data, 'utf8');
-    await this.waitForStream(stream);
+    await completion;
   }
 
   async mkdir(remotePath) {
-    const resolvedPath = await this.resolvePath(remotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const sftp = this.sftp;
     await this.call(sftp, 'mkdir', resolvedPath);
   }
 
   async delete(remotePath, options = {}) {
-    const resolvedPath = await this.resolvePath(remotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const sftp = this.sftp;
     const attrs = await this.call(sftp, 'stat', resolvedPath);
 
     if (!this.isDirectory(attrs)) {
@@ -124,9 +155,10 @@ class SftpProvider extends FileProvider {
   }
 
   async rename(oldRemotePath, newRemotePath) {
-    const oldPath = await this.resolvePath(oldRemotePath);
-    const newPath = await this.resolvePath(newRemotePath);
-    const sftp = await this.getSftp();
+    await this.initialize();
+    const oldPath = this.resolvePathAfterInitialization(oldRemotePath);
+    const newPath = this.resolvePathAfterInitialization(newRemotePath);
+    const sftp = this.sftp;
     await this.call(sftp, 'rename', oldPath, newPath);
   }
 
@@ -165,8 +197,8 @@ class SftpProvider extends FileProvider {
 
   resolveStreamPath(remotePath) {
     const requestedPath = String(remotePath || '.');
-    if (!this.rootPath) {
-      throw new Error('SftpProvider must resolve an absolute root before creating streams');
+    if (!this.initializationPromise || !this.sftp || !this.rootPath) {
+      throw new Error('SftpProvider must be initialized before creating streams');
     }
 
     if (requestedPath === '~') {
@@ -224,8 +256,23 @@ class SftpProvider extends FileProvider {
 
   waitForStream(stream) {
     return new Promise((resolve, reject) => {
-      stream.once('error', reject);
-      stream.once('close', resolve);
+      let settled = false;
+      const complete = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const fail = error => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      };
+
+      stream.once('error', fail);
+      stream.once('finish', complete);
+      stream.once('close', complete);
     });
   }
 }
