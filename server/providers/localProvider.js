@@ -77,6 +77,19 @@ class LocalProvider extends FileProvider {
     return path.join(basePath, name);
   }
 
+  getFilesystemId() {
+    const allowedPaths = (this.allowedPaths || [this.rootPath])
+      .map(targetPath => path.resolve(targetPath))
+      .sort()
+      .join('|');
+    const blockedPaths = (this.blockedPaths || [])
+      .map(targetPath => path.resolve(targetPath))
+      .sort()
+      .join('|');
+
+    return `local:${this.rootPath}|allowed:${allowedPaths}|blocked:${blockedPaths}`;
+  }
+
   normalizePath(targetPath) {
     return this.resolvePath(targetPath);
   }

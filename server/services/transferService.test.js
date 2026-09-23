@@ -36,6 +36,10 @@ class FakeSftpProvider extends FileProvider {
     return path.posix.join(basePath, name);
   }
 
+  getFilesystemId() {
+    return `sftp:${this.sessionId}`;
+  }
+
   normalizePath(targetPath) {
     return path.posix.normalize(targetPath);
   }
@@ -295,6 +299,90 @@ test('same SFTP file is rejected before opening a stream', async () => {
     options: { overwrite: true },
   }), error => error.statusCode === 409 && /same path/.test(error.message));
   assert.deepEqual(await fs.promises.readFile(path.join(fixture.sftpRootA, 'same.bin')), Buffer.from([7, 6, 5]));
+});
+
+test('different SFTP provider instances sharing a session reject same-path copy', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const destinationProvider = new FakeSftpProvider(fixture.sftpRootA, 'session-a');
+  await fs.promises.writeFile(path.join(fixture.sftpRootA, 'same-instance.bin'), Buffer.from([1, 2, 3]));
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.sftpA,
+    sourcePath: '/remote/same-instance.bin',
+    destinationProvider,
+    destinationPath: '/remote/same-instance.bin',
+    options: { overwrite: true },
+  }), error => error.statusCode === 409 && /same path/.test(error.message));
+  assert.deepEqual(
+    await fs.promises.readFile(path.join(fixture.sftpRootA, 'same-instance.bin')),
+    Buffer.from([1, 2, 3]),
+  );
+});
+
+test('different SFTP provider instances sharing a session reject descendant move and preserve source', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const destinationProvider = new FakeSftpProvider(fixture.sftpRootA, 'session-a');
+  const sourcePath = path.join(fixture.sftpRootA, 'folder');
+  await fs.promises.mkdir(sourcePath);
+  await fs.promises.writeFile(path.join(sourcePath, 'file.txt'), 'source');
+
+  await assert.rejects(() => service.move({
+    sourceProvider: fixture.sftpA,
+    sourcePath: '/remote/folder',
+    destinationProvider,
+    destinationPath: '/remote/folder/child',
+  }), error => error.statusCode === 409 && /inside the source/.test(error.message));
+  assert.equal((await fs.promises.stat(sourcePath)).isDirectory(), true);
+  assert.equal((await fs.promises.stat(path.join(sourcePath, 'file.txt'))).isFile(), true);
+});
+
+test('same SFTP session allows sibling paths and different sessions allow identical paths', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const sameSessionDestination = new FakeSftpProvider(fixture.sftpRootA, 'session-a');
+  await fs.promises.mkdir(path.join(fixture.sftpRootA, 'data'));
+  await fs.promises.writeFile(path.join(fixture.sftpRootA, 'data', 'file.txt'), 'sibling');
+
+  await service.copy({
+    sourceProvider: fixture.sftpA,
+    sourcePath: '/remote/data',
+    destinationProvider: sameSessionDestination,
+    destinationPath: '/remote/database',
+  });
+  assert.equal((await fs.promises.stat(path.join(fixture.sftpRootA, 'database', 'file.txt'))).isFile(), true);
+
+  await fs.promises.writeFile(path.join(fixture.sftpRootA, 'identical.txt'), 'different session');
+  await service.copy({
+    sourceProvider: fixture.sftpA,
+    sourcePath: '/remote/identical.txt',
+    destinationProvider: fixture.sftpB,
+    destinationPath: '/remote/identical.txt',
+  });
+  assert.equal(await fs.promises.readFile(path.join(fixture.sftpRootB, 'identical.txt'), 'utf8'), 'different session');
+});
+
+test('separate LocalProvider instances with the same filesystem identity reject self-copy', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const destinationProvider = new LocalProvider({
+    rootPath: fixture.localRoot,
+    allowedPaths: [fixture.localRoot],
+    blockedPaths: [],
+  });
+  const filePath = path.join(fixture.localRoot, 'local-same.txt');
+  await fs.promises.writeFile(filePath, 'preserve');
+
+  assert.equal(fixture.local.getFilesystemId(), destinationProvider.getFilesystemId());
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath: filePath,
+    destinationProvider,
+    destinationPath: filePath,
+    options: { overwrite: true },
+  }), { statusCode: 409 });
+  assert.equal(await fs.promises.readFile(filePath, 'utf8'), 'preserve');
 });
 
 test('same-provider directory descendants are rejected before destination creation', async () => {

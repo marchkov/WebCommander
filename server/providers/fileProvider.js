@@ -42,6 +42,10 @@ class FileProvider {
     this.#notImplemented('joinPath');
   }
 
+  getFilesystemId() {
+    return this;
+  }
+
   createReadStream(_path) {
     this.#notImplemented('createReadStream');
   }

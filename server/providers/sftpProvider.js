@@ -166,6 +166,10 @@ class SftpProvider extends FileProvider {
     return path.posix.join(normalizeRemotePath(basePath), name);
   }
 
+  getFilesystemId() {
+    return `sftp:${this.sessionId}`;
+  }
+
   normalizePath(remotePath) {
     return this.resolvePathAfterInitialization(remotePath);
   }

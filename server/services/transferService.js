@@ -141,7 +141,7 @@ class TransferService {
   }
 
   async validateSameProviderPaths(sourceProvider, sourcePath, destinationProvider, destinationPath) {
-    if (sourceProvider !== destinationProvider) {
+    if (!this.sameFilesystem(sourceProvider, destinationProvider)) {
       return;
     }
 
@@ -168,6 +168,12 @@ class TransferService {
         `Destination is inside the source directory: ${destinationPath}`,
       );
     }
+  }
+
+  sameFilesystem(sourceProvider, destinationProvider) {
+    const sourceId = sourceProvider.getFilesystemId();
+    const destinationId = destinationProvider.getFilesystemId();
+    return sourceId === destinationId;
   }
 
   validateDestinationRoot(sourceEntry, destinationEntry, destinationPath, overwrite) {
