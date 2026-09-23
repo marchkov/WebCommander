@@ -19,13 +19,30 @@ test('local provider preserves Windows-compatible resolved roots', () => {
 });
 
 test('remote paths use POSIX semantics', () => {
-  assert.equal(normalizeRemotePath('var\\www\\files'), 'var/www/files');
-  assert.equal(normalizeRemotePath('/var/../srv/files/'), '/srv/files');
   assert.equal(normalizeRemotePath(''), '/');
+  assert.equal(normalizeRemotePath('.'), '/');
+  assert.equal(normalizeRemotePath('var/www'), '/var/www');
+  assert.equal(normalizeRemotePath('var\\www\\files'), '/var/www/files');
+  assert.equal(normalizeRemotePath('/var/../srv/files/'), '/srv/files');
 });
 
-test('base provider rejects unimplemented operations explicitly', () => {
+test('base provider exposes promise-based unimplemented operations', async () => {
   const provider = new FileProvider('local');
-  assert.throws(() => provider.list('/'), /FileProvider\.list is not implemented/);
+  for (const operation of [
+    () => provider.list('/'),
+    () => provider.stat('/'),
+    () => provider.read('/'),
+    () => provider.write('/', 'data'),
+    () => provider.mkdir('/'),
+    () => provider.delete('/'),
+    () => provider.rename('/old', '/new'),
+  ]) {
+    await assert.rejects(operation(), /FileProvider\.[a-z]+ is not implemented/);
+  }
+});
+
+test('base provider stream operations remain synchronous', () => {
+  const provider = new FileProvider('local');
   assert.throws(() => provider.createReadStream('/'), /FileProvider\.createReadStream is not implemented/);
+  assert.throws(() => provider.createWriteStream('/'), /FileProvider\.createWriteStream is not implemented/);
 });

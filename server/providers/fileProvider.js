@@ -1,5 +1,3 @@
-const { Readable, Writable } = require('stream');
-
 /**
  * Common contract for filesystem providers.
  *
@@ -12,42 +10,40 @@ class FileProvider {
     this.type = type;
   }
 
-  list(_path) {
-    return this.#notImplemented('list');
+  async list(_path) {
+    this.#notImplemented('list');
   }
 
-  stat(_path) {
-    return this.#notImplemented('stat');
+  async stat(_path) {
+    this.#notImplemented('stat');
   }
 
-  read(_path) {
-    return this.#notImplemented('read');
+  async read(_path) {
+    this.#notImplemented('read');
   }
 
-  write(_path, _data) {
-    return this.#notImplemented('write');
+  async write(_path, _data) {
+    this.#notImplemented('write');
   }
 
-  mkdir(_path) {
-    return this.#notImplemented('mkdir');
+  async mkdir(_path) {
+    this.#notImplemented('mkdir');
   }
 
-  delete(_path, _options = {}) {
-    return this.#notImplemented('delete');
+  async delete(_path, _options = {}) {
+    this.#notImplemented('delete');
   }
 
-  rename(_oldPath, _newPath) {
-    return this.#notImplemented('rename');
+  async rename(_oldPath, _newPath) {
+    this.#notImplemented('rename');
   }
 
   createReadStream(_path) {
     this.#notImplemented('createReadStream');
-    return Readable.toWeb ? Readable.from([]) : Readable.from([]);
   }
 
   createWriteStream(_path) {
     this.#notImplemented('createWriteStream');
-    return new Writable({ write(_chunk, _encoding, callback) { callback(); } });
   }
 
   #notImplemented(operation) {

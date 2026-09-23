@@ -11,7 +11,7 @@
  * @property {number} size Size in bytes.
  * @property {Date|string} modified Last modification time.
  * @property {string|undefined} extension File extension without a leading dot.
- * @property {string|undefined} parentId Parent entry identifier or path.
+ * @property {string|null} parentId Parent entry identifier or path.
  * @property {string|number|undefined} permissions Provider-specific permissions.
  * @property {number|string|undefined} uid Owner user identifier.
  * @property {number|string|undefined} gid Owner group identifier.

@@ -5,7 +5,8 @@ function normalizeRemotePath(remotePath) {
   const normalized = String(remotePath || '.').replace(/\\/g, '/');
   const posixPath = path.posix.normalize(normalized);
   if (posixPath === '.') return '/';
-  return posixPath.length > 1 ? posixPath.replace(/\/$/, '') : posixPath;
+  const absolutePath = posixPath.startsWith('/') ? posixPath : `/${posixPath}`;
+  return absolutePath.length > 1 ? absolutePath.replace(/\/$/, '') : absolutePath;
 }
 
 /**
