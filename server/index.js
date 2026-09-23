@@ -8,6 +8,7 @@ const mime = require('mime-types');
 const archiver = require('archiver');
 const SSHManager = require('./sshManager');
 const { validatePath } = require('./pathUtils');
+const LocalProvider = require('./providers/localProvider');
 
 const rawConfig = (() => {
   try {
@@ -79,6 +80,11 @@ const config = {
 
 const app = express();
 const PORT = config.port;
+const localProvider = new LocalProvider({
+  rootPath: config.rootPath,
+  allowedPaths: config.security.allowedPaths,
+  blockedPaths: config.security.blockedPaths,
+});
 
 // Middleware
 app.use(cors({
@@ -193,139 +199,98 @@ app.get('/api/auth/check', (req, res) => {
 // ============ FILE OPERATIONS ============
 
 // List directory
-app.get('/api/files', requireAuth, (req, res) => {
+app.get('/api/files', requireAuth, async (req, res) => {
   const dirPath = req.query.path || config.rootPath;
-  const validation = validateServerPath(dirPath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (!fs.existsSync(validation.path)) {
-      return res.status(404).json({ error: 'Directory not found' });
-    }
-    
-    const entries = fs.readdirSync(validation.path, { withFileTypes: true });
-    const files = entries.map(entry => {
-      const fullPath = path.join(validation.path, entry.name);
-      const stats = fs.statSync(fullPath);
-      
-      return {
-        id: fullPath,
-        name: entry.name,
-        type: entry.isDirectory() ? 'folder' : 'file',
-        size: stats.size,
-        modified: stats.mtime,
-        extension: entry.isFile() ? path.extname(entry.name).slice(1) : undefined,
-        parentId: validation.path
-      };
-    });
+    const files = await localProvider.list(dirPath);
     
     res.json({
-      path: validation.path,
+      path: localProvider.resolvePath(dirPath),
       files: files
     });
   } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Directory not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
 
 // Read file content
-app.get('/api/files/read', requireAuth, (req, res) => {
+app.get('/api/files/read', requireAuth, async (req, res) => {
   const filePath = req.query.path;
-  const validation = validateServerPath(filePath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (!fs.existsSync(validation.path)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    
-    const stats = fs.statSync(validation.path);
-    
-    if (stats.isDirectory()) {
+    const info = await localProvider.stat(filePath);
+    if (info.type === 'folder') {
       return res.status(400).json({ error: 'Cannot read directory' });
     }
-    
-    const content = fs.readFileSync(validation.path, 'utf-8');
-    res.json({ content, path: validation.path });
+
+    const content = await localProvider.read(filePath);
+    res.json({ content, path: info.path });
   } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'File not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
 
 // Write file content
-app.post('/api/files/write', requireAuth, (req, res) => {
+app.post('/api/files/write', requireAuth, async (req, res) => {
   const { path: filePath, content } = req.body;
-  const validation = validateServerPath(filePath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    const dir = path.dirname(validation.path);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    
-    fs.writeFileSync(validation.path, content, 'utf-8');
-    res.json({ success: true, path: validation.path });
+    await localProvider.write(filePath, content);
+    res.json({ success: true, path: localProvider.resolvePath(filePath) });
   } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });
 
 // Create directory
-app.post('/api/files/mkdir', requireAuth, (req, res) => {
+app.post('/api/files/mkdir', requireAuth, async (req, res) => {
   const { path: dirPath, name } = req.body;
   const fullPath = path.join(dirPath, name);
-  const validation = validateServerPath(fullPath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (fs.existsSync(validation.path)) {
+    await localProvider.mkdir(fullPath);
+    res.json({ success: true, path: localProvider.resolvePath(fullPath) });
+  } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'EEXIST') {
       return res.status(400).json({ error: 'Directory already exists' });
     }
-    
-    fs.mkdirSync(validation.path, { recursive: true });
-    res.json({ success: true, path: validation.path });
-  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Delete file or directory
-app.post('/api/files/delete', requireAuth, (req, res) => {
+app.post('/api/files/delete', requireAuth, async (req, res) => {
   const { path: targetPath } = req.body;
-  const validation = validateServerPath(targetPath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (!fs.existsSync(validation.path)) {
-      return res.status(404).json({ error: 'Path not found' });
-    }
-    
-    const stats = fs.statSync(validation.path);
-    
-    if (stats.isDirectory()) {
-      fs.rmSync(validation.path, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(validation.path);
-    }
-    
+    await localProvider.delete(targetPath, { recursive: true, force: true });
     res.json({ success: true });
   } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Path not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -384,30 +349,31 @@ app.post('/api/files/move', requireAuth, (req, res) => {
 });
 
 // Rename file or directory
-app.post('/api/files/rename', requireAuth, (req, res) => {
+app.post('/api/files/rename', requireAuth, async (req, res) => {
   const { path: targetPath, newName } = req.body;
-  const validation = validateServerPath(targetPath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (!fs.existsSync(validation.path)) {
+    const currentPath = localProvider.resolvePath(targetPath);
+    const dir = path.dirname(currentPath);
+    const newPath = path.join(dir, newName);
+
+    try {
+      await localProvider.rename(currentPath, newPath);
+    } catch (error) {
+      if (error.statusCode === 403) {
+        return res.status(403).json({ error: 'Invalid new path' });
+      }
+      throw error;
+    }
+
+    res.json({ success: true, newPath: localProvider.resolvePath(newPath) });
+  } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT') {
       return res.status(404).json({ error: 'Path not found' });
     }
-    
-    const dir = path.dirname(validation.path);
-    const newPath = path.join(dir, newName);
-    const newValidation = validateServerPath(newPath);
-    
-    if (!newValidation.valid) {
-      return res.status(403).json({ error: 'Invalid new path' });
-    }
-    
-    fs.renameSync(validation.path, newValidation.path);
-    res.json({ success: true, newPath: newValidation.path });
-  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -427,68 +393,61 @@ app.post('/api/files/upload', requireAuth, upload.single('file'), (req, res) => 
 });
 
 // Download file
-app.get('/api/files/download', requireAuth, (req, res) => {
+app.get('/api/files/download', requireAuth, async (req, res) => {
   const filePath = req.query.path;
-  const validation = validateServerPath(filePath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (!fs.existsSync(validation.path)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    
-    const stats = fs.statSync(validation.path);
-    
-    if (stats.isDirectory()) {
+    const info = await localProvider.stat(filePath);
+
+    if (info.type === 'folder') {
       // Create zip archive for directory
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(validation.path)}.zip"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(info.path)}.zip"`);
       
       const archive = archiver('zip', { zlib: { level: 9 } });
       archive.pipe(res);
-      archive.directory(validation.path, false);
+      archive.directory(info.path, false);
       archive.finalize();
     } else {
-      const mimeType = mime.lookup(validation.path) || 'application/octet-stream';
+      const mimeType = mime.lookup(info.path) || 'application/octet-stream';
       res.setHeader('Content-Type', mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(validation.path)}"`);
-      fs.createReadStream(validation.path).pipe(res);
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(info.path)}"`);
+      localProvider.createReadStream(info.path).pipe(res);
     }
   } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'File not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
 
 // Get file info
-app.get('/api/files/info', requireAuth, (req, res) => {
+app.get('/api/files/info', requireAuth, async (req, res) => {
   const filePath = req.query.path;
-  const validation = validateServerPath(filePath);
-  
-  if (!validation.valid) {
-    return res.status(403).json({ error: validation.error });
-  }
-  
+
   try {
-    if (!fs.existsSync(validation.path)) {
-      return res.status(404).json({ error: 'Path not found' });
-    }
-    
-    const stats = fs.statSync(validation.path);
-    
+    const info = await localProvider.stat(filePath);
     res.json({
-      path: validation.path,
-      name: path.basename(validation.path),
-      type: stats.isDirectory() ? 'folder' : 'file',
-      size: stats.size,
-      created: stats.birthtime,
-      modified: stats.mtime,
-      accessed: stats.atime,
-      permissions: stats.mode.toString(8).slice(-3)
+      path: info.path,
+      name: info.name,
+      type: info.type,
+      size: info.size,
+      created: info.created,
+      modified: info.modified,
+      accessed: info.accessed,
+      permissions: info.permissions
     });
   } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Path not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
