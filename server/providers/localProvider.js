@@ -73,6 +73,10 @@ class LocalProvider extends FileProvider {
     await fs.promises.rename(resolvedOldPath, resolvedNewPath);
   }
 
+  joinPath(basePath, name) {
+    return path.join(basePath, name);
+  }
+
   createReadStream(targetPath) {
     return fs.createReadStream(this.resolvePath(targetPath));
   }

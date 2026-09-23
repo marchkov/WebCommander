@@ -10,6 +10,7 @@ const SSHManager = require('./sshManager');
 const { validatePath } = require('./pathUtils');
 const LocalProvider = require('./providers/localProvider');
 const SftpProvider = require('./providers/sftpProvider');
+const TransferService = require('./services/transferService');
 
 const rawConfig = (() => {
   try {
@@ -86,6 +87,7 @@ const localProvider = new LocalProvider({
   allowedPaths: config.security.allowedPaths,
   blockedPaths: config.security.blockedPaths,
 });
+const transferService = new TransferService();
 const createSftpProvider = sessionId => new SftpProvider({
   sessionId,
   sshManager: SSHManager,
@@ -94,6 +96,22 @@ const initializeSftpProvider = async sessionId => {
   const provider = createSftpProvider(sessionId);
   await provider.initialize();
   return provider;
+};
+const createProviderFromDescriptor = async descriptor => {
+  if (!descriptor || !descriptor.provider || !descriptor.path) {
+    throw new Error('provider and path are required');
+  }
+
+  if (descriptor.provider === 'local') {
+    return { provider: localProvider, path: localProvider.resolvePath(descriptor.path) };
+  }
+
+  if (descriptor.provider === 'sftp') {
+    const provider = await initializeSftpProvider(descriptor.sessionId);
+    return { provider, path: await provider.resolvePath(descriptor.path) };
+  }
+
+  throw new Error(`Unsupported provider: ${descriptor.provider}`);
 };
 
 // Middleware
@@ -306,54 +324,101 @@ app.post('/api/files/delete', requireAuth, async (req, res) => {
 });
 
 // Copy file or directory
-app.post('/api/files/copy', requireAuth, (req, res) => {
+app.post('/api/files/copy', requireAuth, async (req, res) => {
   const { source, destination } = req.body;
-  
+
   const srcValidation = validateServerPath(source);
   const destValidation = validateServerPath(destination);
-  
+
   if (!srcValidation.valid || !destValidation.valid) {
     return res.status(403).json({ error: 'Invalid path' });
   }
-  
+
   try {
-    if (!fs.existsSync(srcValidation.path)) {
-      return res.status(404).json({ error: 'Source not found' });
-    }
-    
-    const stats = fs.statSync(srcValidation.path);
-    
-    if (stats.isDirectory()) {
-      fs.cpSync(srcValidation.path, destValidation.path, { recursive: true });
-    } else {
-      fs.copyFileSync(srcValidation.path, destValidation.path);
-    }
-    
+    await transferService.copy({
+      sourceProvider: localProvider,
+      sourcePath: srcValidation.path,
+      destinationProvider: localProvider,
+      destinationPath: destValidation.path,
+    });
     res.json({ success: true });
   } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Source not found' });
+    }
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });
 
 // Move file or directory
-app.post('/api/files/move', requireAuth, (req, res) => {
+app.post('/api/files/move', requireAuth, async (req, res) => {
   const { source, destination } = req.body;
-  
+
   const srcValidation = validateServerPath(source);
   const destValidation = validateServerPath(destination);
-  
+
   if (!srcValidation.valid || !destValidation.valid) {
     return res.status(403).json({ error: 'Invalid path' });
   }
-  
+
   try {
-    if (!fs.existsSync(srcValidation.path)) {
-      return res.status(404).json({ error: 'Source not found' });
-    }
-    
-    fs.renameSync(srcValidation.path, destValidation.path);
+    await transferService.move({
+      sourceProvider: localProvider,
+      sourcePath: srcValidation.path,
+      destinationProvider: localProvider,
+      destinationPath: destValidation.path,
+    });
     res.json({ success: true });
   } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Source not found' });
+    }
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generic provider-to-provider transfer
+app.post('/api/transfers', requireAuth, async (req, res) => {
+  const { operation, source, destination, overwrite = false } = req.body;
+
+  if (operation !== 'copy' && operation !== 'move') {
+    return res.status(400).json({ error: 'operation must be copy or move' });
+  }
+
+  try {
+    const sourceDescriptor = await createProviderFromDescriptor(source);
+    const destinationDescriptor = await createProviderFromDescriptor(destination);
+    const transfer = {
+      sourceProvider: sourceDescriptor.provider,
+      sourcePath: sourceDescriptor.path,
+      destinationProvider: destinationDescriptor.provider,
+      destinationPath: destinationDescriptor.path,
+      options: { overwrite: overwrite === true },
+    };
+    const result = operation === 'move'
+      ? await transferService.move(transfer)
+      : await transferService.copy(transfer);
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (error.statusCode === 403) {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message });
+    }
+    if (error.code === 'ENOENT' || error.code === 'SSH_FX_NO_SUCH_FILE') {
+      return res.status(404).json({ error: 'Source or destination path not found' });
+    }
+    if (error.message === 'provider and path are required' || error.message.startsWith('Unsupported provider:')) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });

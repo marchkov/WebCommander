@@ -162,6 +162,10 @@ class SftpProvider extends FileProvider {
     await this.call(sftp, 'rename', oldPath, newPath);
   }
 
+  joinPath(basePath, name) {
+    return path.posix.join(normalizeRemotePath(basePath), name);
+  }
+
   createReadStream(remotePath) {
     const resolvedPath = this.resolveStreamPath(remotePath);
     if (!this.sftp) {

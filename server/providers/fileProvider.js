@@ -38,6 +38,10 @@ class FileProvider {
     this.#notImplemented('rename');
   }
 
+  joinPath(_basePath, _name) {
+    this.#notImplemented('joinPath');
+  }
+
   createReadStream(_path) {
     this.#notImplemented('createReadStream');
   }
