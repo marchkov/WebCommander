@@ -62,6 +62,21 @@ class SSHManager {
     return session;
   }
 
+  // Получить существующий SFTP-канал для сессии
+  static getSftp(sessionId) {
+    const session = this.getConnection(sessionId);
+
+    return new Promise((resolve, reject) => {
+      session.conn.sftp((error, sftp) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(sftp);
+      });
+    });
+  }
+
   // Отключение
   static disconnect(sessionId) {
     const session = connections.get(sessionId);
@@ -179,37 +194,14 @@ class SSHManager {
 
   // Удаление файла или директории
   static async delete(sessionId, targetPath, isDirectory) {
-    const session = this.getConnection(sessionId);
-    
-    return new Promise((resolve, reject) => {
-      if (isDirectory) {
-        // Рекурсивное удаление через exec
-        session.conn.exec(`rm -rf "${targetPath}"`, (err, stream) => {
-          if (err) return reject(err);
-          
-          stream.on('close', (code) => {
-            if (code === 0) {
-              resolve({ success: true });
-            } else {
-              reject(new Error(`Delete failed with code ${code}`));
-            }
-          });
-          
-          stream.stderr.on('data', (data) => {
-            reject(new Error(data.toString()));
-          });
-        });
-      } else {
-        session.conn.sftp((err, sftp) => {
-          if (err) return reject(err);
-          
-          sftp.unlink(targetPath, (err) => {
-            if (err) return reject(err);
-            resolve({ success: true });
-          });
-        });
-      }
+    const SftpProvider = require('./providers/sftpProvider');
+    const provider = new SftpProvider({
+      sessionId,
+      sshManager: this,
     });
+
+    await provider.delete(targetPath, { recursive: Boolean(isDirectory), force: true });
+    return { success: true };
   }
 
   // Переименование

@@ -9,6 +9,7 @@ const archiver = require('archiver');
 const SSHManager = require('./sshManager');
 const { validatePath } = require('./pathUtils');
 const LocalProvider = require('./providers/localProvider');
+const SftpProvider = require('./providers/sftpProvider');
 
 const rawConfig = (() => {
   try {
@@ -84,6 +85,10 @@ const localProvider = new LocalProvider({
   rootPath: config.rootPath,
   allowedPaths: config.security.allowedPaths,
   blockedPaths: config.security.blockedPaths,
+});
+const createSftpProvider = sessionId => new SftpProvider({
+  sessionId,
+  sshManager: SSHManager,
 });
 
 // Middleware
@@ -497,10 +502,12 @@ app.get('/api/ssh/sessions', requireAuth, (req, res) => {
 // Листинг директории через SSH
 app.get('/api/ssh/files', requireAuth, async (req, res) => {
   const { sessionId, path: dirPath } = req.query;
-  
+
   try {
-    const files = await SSHManager.listDir(sessionId, dirPath || '~');
-    res.json({ path: dirPath || '~', files });
+    const provider = createSftpProvider(sessionId);
+    const remotePath = await provider.resolvePath(dirPath || '~');
+    const files = await provider.list(remotePath);
+    res.json({ path: remotePath, files });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -509,9 +516,9 @@ app.get('/api/ssh/files', requireAuth, async (req, res) => {
 // Чтение файла через SSH
 app.get('/api/ssh/files/read', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
-  
+
   try {
-    const content = await SSHManager.readFile(sessionId, filePath);
+    const content = await createSftpProvider(sessionId).read(filePath);
     res.json({ content, path: filePath });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -521,9 +528,9 @@ app.get('/api/ssh/files/read', requireAuth, async (req, res) => {
 // Запись файла через SSH
 app.post('/api/ssh/files/write', requireAuth, async (req, res) => {
   const { sessionId, path: filePath, content } = req.body;
-  
+
   try {
-    await SSHManager.writeFile(sessionId, filePath, content);
+    await createSftpProvider(sessionId).write(filePath, content);
     res.json({ success: true, path: filePath });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -533,9 +540,9 @@ app.post('/api/ssh/files/write', requireAuth, async (req, res) => {
 // Создание директории через SSH
 app.post('/api/ssh/files/mkdir', requireAuth, async (req, res) => {
   const { sessionId, path: dirPath } = req.body;
-  
+
   try {
-    await SSHManager.mkdir(sessionId, dirPath);
+    await createSftpProvider(sessionId).mkdir(dirPath);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -545,9 +552,12 @@ app.post('/api/ssh/files/mkdir', requireAuth, async (req, res) => {
 // Удаление через SSH
 app.post('/api/ssh/files/delete', requireAuth, async (req, res) => {
   const { sessionId, path: targetPath, isDirectory } = req.body;
-  
+
   try {
-    await SSHManager.delete(sessionId, targetPath, isDirectory);
+    await createSftpProvider(sessionId).delete(targetPath, {
+      recursive: Boolean(isDirectory),
+      force: true,
+    });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -557,9 +567,9 @@ app.post('/api/ssh/files/delete', requireAuth, async (req, res) => {
 // Переименование через SSH
 app.post('/api/ssh/files/rename', requireAuth, async (req, res) => {
   const { sessionId, path: oldPath, newPath } = req.body;
-  
+
   try {
-    await SSHManager.rename(sessionId, oldPath, newPath);
+    await createSftpProvider(sessionId).rename(oldPath, newPath);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -569,16 +579,17 @@ app.post('/api/ssh/files/rename', requireAuth, async (req, res) => {
 // Скачивание файла через SSH
 app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
-  
+
   try {
-    const buffer = await SSHManager.downloadFile(sessionId, filePath);
-    const fileName = path.basename(filePath);
-    const mimeType = mime.lookup(filePath) || 'application/octet-stream';
+    const provider = createSftpProvider(sessionId);
+    const info = await provider.stat(filePath);
+    const fileName = path.posix.basename(info.path);
+    const mimeType = mime.lookup(info.path) || 'application/octet-stream';
     
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Length', buffer.length);
-    res.send(buffer);
+    res.setHeader('Content-Length', info.size);
+    provider.createReadStream(info.path).pipe(res);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -610,9 +621,9 @@ app.post('/api/ssh/files/upload', requireAuth, async (req, res) => {
 // Информация о файле через SSH
 app.get('/api/ssh/files/info', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
-  
+
   try {
-    const info = await SSHManager.stat(sessionId, filePath);
+    const info = await createSftpProvider(sessionId).stat(filePath);
     res.json(info);
   } catch (error) {
     res.status(500).json({ error: error.message });

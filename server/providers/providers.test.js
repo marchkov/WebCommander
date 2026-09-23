@@ -32,8 +32,12 @@ test.afterEach(async () => {
 
 test('provider classes expose the expected provider types', () => {
   assert.equal(new LocalProvider({ rootPath: 'D:/Example' }).type, 'local');
-  assert.equal(new SftpProvider().type, 'sftp');
-  assert.equal(new SftpProvider().rootPath, '/');
+  const sftpProvider = new SftpProvider({
+    sessionId: 'test-session',
+    sshManager: { getSftp: async () => ({}) },
+  });
+  assert.equal(sftpProvider.type, 'sftp');
+  assert.equal(sftpProvider.rootPath, null);
 });
 
 test('local provider preserves Windows-compatible resolved roots', () => {
