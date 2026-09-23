@@ -154,6 +154,7 @@ test('local provider rejects symlink escapes and deletes links without following
   const outsideTarget = path.join(path.dirname(rootPath), `${path.basename(rootPath)}-outside`);
   const allowedLink = path.join(rootPath, 'allowed-link');
   const escapeLink = path.join(rootPath, 'escape-link');
+  const brokenLink = path.join(rootPath, 'broken-link');
 
   await fs.promises.mkdir(insideTarget);
   await fs.promises.mkdir(outsideTarget);
@@ -163,12 +164,22 @@ test('local provider rejects symlink escapes and deletes links without following
   try {
     await fs.promises.symlink(insideTarget, allowedLink, 'junction');
     await fs.promises.symlink(outsideTarget, escapeLink, 'junction');
+    await fs.promises.symlink(path.join(rootPath, 'missing-target'), brokenLink, 'file');
   } catch (error) {
     t.skip(`symlink creation unavailable: ${error.code || error.message}`);
     return;
   }
 
   assert.equal(await provider.read(path.join(allowedLink, 'allowed.txt')), 'allowed');
+  const listedEntries = await provider.list(rootPath);
+  const listedAllowedLink = listedEntries.find(entry => entry.name === path.basename(allowedLink));
+  const listedEscapeLink = listedEntries.find(entry => entry.name === path.basename(escapeLink));
+  const listedBrokenLink = listedEntries.find(entry => entry.name === path.basename(brokenLink));
+  assert.equal(listedAllowedLink.type, 'folder');
+  assert.equal(listedAllowedLink.isSymlink, true);
+  assert.equal(listedEscapeLink.isSymlink, true);
+  assert.equal(listedBrokenLink.isSymlink, true);
+  assert.equal(listedEntries.some(entry => entry.name === 'inside-target'), true);
   await assert.rejects(() => provider.stat(path.join(escapeLink, 'secret.txt')), { statusCode: 403 });
   await assert.rejects(() => provider.read(path.join(escapeLink, 'secret.txt')), { statusCode: 403 });
   await assert.rejects(() => provider.list(escapeLink), { statusCode: 403 });

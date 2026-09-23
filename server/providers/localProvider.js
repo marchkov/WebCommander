@@ -28,8 +28,12 @@ class LocalProvider extends FileProvider {
 
     return Promise.all(entries.map(async entry => {
       const entryPath = path.join(resolvedPath, entry.name);
-      const entryStats = await this.validateExistingPath(entryPath);
-      return this.toFileEntry(entryPath, entry.name, entryStats.stats, resolvedPath);
+      if (entry.isSymbolicLink()) {
+        return this.toSymlinkEntry(entryPath, entry.name, resolvedPath);
+      }
+
+      const entryStats = await fs.promises.stat(entryPath);
+      return this.toFileEntry(entryPath, entry.name, entryStats, resolvedPath);
     }));
   }
 
@@ -309,7 +313,24 @@ class LocalProvider extends FileProvider {
     await fs.promises.rmdir(directoryPath);
   }
 
-  async toFileEntry(entryPath, name, stats, parentPath) {
+  async toSymlinkEntry(entryPath, name, parentPath) {
+    const linkStats = await fs.promises.lstat(entryPath);
+
+    try {
+      const realPath = await fs.promises.realpath(entryPath);
+      await this.validateRealPath(realPath);
+      const targetStats = await fs.promises.stat(entryPath);
+      return this.toFileEntry(entryPath, name, targetStats, parentPath, true);
+    } catch (error) {
+      if (error.statusCode !== 403 && error.code !== 'ENOENT') {
+        throw error;
+      }
+
+      return this.toFileEntry(entryPath, name, linkStats, parentPath, true);
+    }
+  }
+
+  async toFileEntry(entryPath, name, stats, parentPath, isSymlink = false) {
     const isFolder = stats.isDirectory();
     return {
       id: entryPath,
@@ -325,6 +346,7 @@ class LocalProvider extends FileProvider {
       permissions: stats.mode.toString(8).slice(-3),
       uid: stats.uid,
       gid: stats.gid,
+      isSymlink,
     };
   }
 }
