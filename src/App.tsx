@@ -6,7 +6,7 @@ import StatusBar from './components/StatusBar';
 import Login from './components/Login';
 import FileEditor from './components/FileEditor';
 import SSHConnectModal from './components/SSHConnectModal';
-import { api } from './api/client';
+import { ApiError, api, ProviderDescriptor } from './api/client';
 import { FileItem, PanelState } from './types';
 
 type PanelSide = 'left' | 'right';
@@ -139,8 +139,8 @@ function App() {
     }
   };
 
-  const loadDirectory = async (path: string, panel: PanelSide) => {
-    const panelState = panel === 'left' ? leftPanel : rightPanel;
+  const loadDirectory = async (path: string, panel: PanelSide, stateOverride?: PanelState) => {
+    const panelState = stateOverride || (panel === 'left' ? leftPanel : rightPanel);
     
     try {
       if (panelState.mode === 'ssh' && panelState.sshSessionId) {
@@ -260,7 +260,7 @@ function App() {
     ]);
   };
 
-  const handleToggleSSH = (panel: PanelSide) => {
+  const handleToggleSSH = async (panel: PanelSide) => {
     const panelState = panel === 'left' ? leftPanel : rightPanel;
     
     if (panelState.mode === 'ssh') {
@@ -278,7 +278,15 @@ function App() {
         currentPath: '/',
         selectedItems: [],
       });
-      loadDirectory('/', panel);
+      await loadDirectory('/', panel, {
+        ...panelState,
+        mode: 'local',
+        sshSessionId: undefined,
+        sshHost: undefined,
+        sshUser: undefined,
+        currentPath: '/',
+        selectedItems: [],
+      });
       showToast('Switched to local mode', 'info');
     } else {
       // Open SSH connect modal
@@ -295,7 +303,7 @@ function App() {
       return;
     }
 
-    setPanelState(panel, {
+    const nextPanelState: PanelState = {
       ...panelState,
       mode: 'ssh',
       sshSessionId: sessionId,
@@ -303,10 +311,11 @@ function App() {
       sshUser: sshUser,
       currentPath: '~',
       selectedItems: [],
-    });
+    };
+    setPanelState(panel, nextPanelState);
 
     try {
-      await loadDirectory('~', panel);
+      await loadDirectory('~', panel, nextPanelState);
       setSSHModal({ isOpen: false, targetPanel: 'left' });
       showToast(`Connected to ${host}`, 'success');
     } catch (err) {
@@ -314,112 +323,86 @@ function App() {
     }
   };
 
-  const handleCopy = async () => {
+  const getProviderDescriptor = (panel: PanelState, itemPath: string): ProviderDescriptor => {
+    if (panel.mode === 'ssh') {
+      if (!panel.sshSessionId) {
+        throw new Error('SSH session is not active');
+      }
+
+      return {
+        provider: 'sftp',
+        sessionId: panel.sshSessionId,
+        path: itemPath,
+      };
+    }
+
+    return { provider: 'local', path: itemPath };
+  };
+
+  const transferSelectedItems = async (operation: 'copy' | 'move') => {
     const panel = getActivePanelState();
     const targetPanel = getInactivePanelState();
-    
-    if (panel.selectedItems.length === 0) return;
+    const sourceSide = activePanel;
+    const destinationSide: PanelSide = activePanel === 'left' ? 'right' : 'left';
+    let completedItems = 0;
 
-    try {
-      if (panel.mode === 'local' && targetPanel.mode === 'local') {
-        // Local to Local
-        for (const itemId of panel.selectedItems) {
-          const item = panel.files.find(f => f.id === itemId);
-          if (item) {
-            const destPath = joinPath(targetPanel.currentPath, item.name);
-            await api.copy(item.id, destPath);
-          }
-        }
-      } else if (panel.mode === 'ssh' && targetPanel.mode === 'local') {
-        // SSH to Local - download files
-        for (const itemId of panel.selectedItems) {
-          const item = panel.files.find(f => f.id === itemId);
-          if (item && panel.sshSessionId) {
-            await api.sshDownload(panel.sshSessionId, item.id);
-          }
-        }
-      } else if (panel.mode === 'local' && targetPanel.mode === 'ssh') {
-        // Local to SSH - upload files
-        if (!targetPanel.sshSessionId) {
-          showToast('Target SSH session is not active', 'error');
-          return;
-        }
+    for (const itemId of panel.selectedItems) {
+      const item = panel.files.find(file => file.id === itemId);
+      if (!item) continue;
 
-        for (const itemId of panel.selectedItems) {
-          const item = panel.files.find(f => f.id === itemId);
-          if (!item) continue;
-          if (item.type === 'folder') {
-            showToast('Folder upload to SSH is not supported yet', 'info');
-            return;
+      const request = {
+        operation,
+        source: getProviderDescriptor(panel, item.id),
+        destination: getProviderDescriptor(targetPanel, joinPath(targetPanel.currentPath, item.name)),
+      } as const;
+
+      try {
+        await api.transfer(request);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) {
+          const overwrite = window.confirm(`${error.message}\n\nOverwrite the destination?`);
+          if (!overwrite) {
+            throw new Error('Transfer cancelled');
           }
 
-          const destPath = joinPath(targetPanel.currentPath, item.name);
-          await api.sshTransfer(targetPanel.sshSessionId, item.id, destPath, 'upload');
+          await api.transfer({ ...request, overwrite: true });
+        } else {
+          throw error;
         }
-      } else if (panel.mode === 'ssh' && targetPanel.mode === 'ssh') {
-        // SSH to SSH on the same remote host
-        if (!panel.sshSessionId || !targetPanel.sshSessionId) {
-          showToast('SSH session is not active', 'error');
-          return;
-        }
-
-        if (panel.sshSessionId !== targetPanel.sshSessionId) {
-          showToast('SSH-to-SSH transfer between different hosts is not supported yet', 'info');
-          return;
-        }
-
-        for (const itemId of panel.selectedItems) {
-          const item = panel.files.find(f => f.id === itemId);
-          if (!item) continue;
-
-          const destPath = joinPath(targetPanel.currentPath, item.name);
-          const command = `cp -a "${item.id}" "${destPath}"`;
-          await api.sshExec(panel.sshSessionId, command);
-        }
-      } else {
-        showToast('Unsupported transfer mode', 'info');
-        return;
       }
-      
-      await Promise.all([
-        loadDirectory(panel.currentPath, activePanel),
-        loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left'),
-      ]);
-      showToast(`Copied ${panel.selectedItems.length} item(s)`, 'success');
+
+      completedItems += 1;
+    }
+
+    await Promise.all([
+      loadDirectory(panel.currentPath, sourceSide, panel),
+      loadDirectory(targetPanel.currentPath, destinationSide, targetPanel),
+    ]);
+
+    return completedItems;
+  };
+
+  const handleCopy = async () => {
+    try {
+      const panel = getActivePanelState();
+      if (panel.selectedItems.length === 0) return;
+      const completedItems = await transferSelectedItems('copy');
+      showToast(`Copied ${completedItems} item(s)`, 'success');
     } catch (err) {
       console.error('Copy failed:', err);
-      showToast('Copy failed', 'error');
+      showToast(err instanceof Error ? err.message : 'Copy failed', 'error');
     }
   };
 
   const handleMove = async () => {
-    const panel = getActivePanelState();
-    const targetPanel = getInactivePanelState();
-    
-    if (panel.selectedItems.length === 0) return;
-
     try {
-      if (panel.mode === 'local' && targetPanel.mode === 'local') {
-        for (const itemId of panel.selectedItems) {
-          const item = panel.files.find(f => f.id === itemId);
-          if (item) {
-            const destPath = joinPath(targetPanel.currentPath, item.name);
-            await api.move(item.id, destPath);
-          }
-        }
-      } else {
-        showToast('Cross-mode move not supported. Use copy + delete.', 'info');
-        return;
-      }
-      
-      await Promise.all([
-        loadDirectory(panel.currentPath, activePanel),
-        loadDirectory(targetPanel.currentPath, activePanel === 'left' ? 'right' : 'left'),
-      ]);
-      showToast(`Moved ${panel.selectedItems.length} item(s)`, 'success');
+      const panel = getActivePanelState();
+      if (panel.selectedItems.length === 0) return;
+      const completedItems = await transferSelectedItems('move');
+      showToast(`Moved ${completedItems} item(s)`, 'success');
     } catch (err) {
       console.error('Move failed:', err);
-      showToast('Move failed', 'error');
+      showToast(err instanceof Error ? err.message : 'Move failed', 'error');
     }
   };
 

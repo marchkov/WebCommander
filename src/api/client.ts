@@ -1,4 +1,34 @@
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
+
+export type ProviderDescriptor = {
+  provider: 'local' | 'sftp';
+  sessionId?: string;
+  path: string;
+};
+
+export type TransferRequest = {
+  operation: 'copy' | 'move';
+  source: ProviderDescriptor;
+  destination: ProviderDescriptor;
+  overwrite?: boolean;
+};
+
+export type TransferResult = {
+  success: boolean;
+  filesCopied: number;
+  directoriesCreated: number;
+  bytesCopied: number;
+};
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 // Demo mode flag - работает без сервера
 let demoMode = false;
@@ -22,12 +52,18 @@ class ApiClient {
 
       if (response.status === 401) {
         window.location.href = '/login';
-        throw new Error('Authentication required');
+        throw new ApiError('Authentication required', response.status);
       }
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Request failed');
+        let message = 'Request failed';
+        try {
+          const error = await response.json();
+          message = error.error || message;
+        } catch {
+          message = response.statusText || message;
+        }
+        throw new ApiError(message, response.status);
       }
 
       return response.json();
@@ -103,6 +139,15 @@ class ApiClient {
 
     if (url === '/files/move') {
       return { success: true } as T;
+    }
+
+    if (url === '/transfers') {
+      return {
+        success: true,
+        filesCopied: 1,
+        directoriesCreated: 0,
+        bytesCopied: 0,
+      } as T;
     }
 
     if (url === '/files/rename') {
@@ -243,6 +288,20 @@ class ApiClient {
     return this.request<{ success: boolean }>('/files/move', {
       method: 'POST',
       body: JSON.stringify({ source, destination }),
+    });
+  }
+
+  async transfer(request: TransferRequest) {
+    if (demoMode) {
+      return this.mockRequest<TransferResult>('/transfers', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      });
+    }
+
+    return this.request<TransferResult>('/transfers', {
+      method: 'POST',
+      body: JSON.stringify(request),
     });
   }
 
