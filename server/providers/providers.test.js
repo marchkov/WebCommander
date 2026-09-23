@@ -147,3 +147,56 @@ test('local provider rejects paths outside allowed and blocked paths', async () 
     statusCode: 403,
   });
 });
+
+test('local provider rejects symlink escapes and deletes links without following targets', async t => {
+  const { rootPath, provider } = await createTestProvider();
+  const insideTarget = path.join(rootPath, 'inside-target');
+  const outsideTarget = path.join(path.dirname(rootPath), `${path.basename(rootPath)}-outside`);
+  const allowedLink = path.join(rootPath, 'allowed-link');
+  const escapeLink = path.join(rootPath, 'escape-link');
+
+  await fs.promises.mkdir(insideTarget);
+  await fs.promises.mkdir(outsideTarget);
+  await fs.promises.writeFile(path.join(insideTarget, 'allowed.txt'), 'allowed');
+  await fs.promises.writeFile(path.join(outsideTarget, 'secret.txt'), 'secret');
+
+  try {
+    await fs.promises.symlink(insideTarget, allowedLink, 'junction');
+    await fs.promises.symlink(outsideTarget, escapeLink, 'junction');
+  } catch (error) {
+    t.skip(`symlink creation unavailable: ${error.code || error.message}`);
+    return;
+  }
+
+  assert.equal(await provider.read(path.join(allowedLink, 'allowed.txt')), 'allowed');
+  await assert.rejects(() => provider.stat(path.join(escapeLink, 'secret.txt')), { statusCode: 403 });
+  await assert.rejects(() => provider.read(path.join(escapeLink, 'secret.txt')), { statusCode: 403 });
+  await assert.rejects(() => provider.list(escapeLink), { statusCode: 403 });
+  await assert.rejects(() => provider.write(path.join(escapeLink, 'new.txt'), 'blocked'), { statusCode: 403 });
+  await assert.rejects(() => provider.mkdir(path.join(escapeLink, 'new-dir')), { statusCode: 403 });
+  assert.throws(() => provider.createReadStream(path.join(escapeLink, 'secret.txt')), { statusCode: 403 });
+  assert.throws(() => provider.createWriteStream(path.join(escapeLink, 'new.txt')), { statusCode: 403 });
+
+  const renameSource = path.join(rootPath, 'rename-source.txt');
+  await fs.promises.writeFile(renameSource, 'rename');
+  await assert.rejects(() => provider.rename(renameSource, path.join(escapeLink, 'renamed.txt')), { statusCode: 403 });
+
+  const blockedProvider = new LocalProvider({
+    rootPath,
+    allowedPaths: [rootPath],
+    blockedPaths: [insideTarget],
+  });
+  await assert.rejects(() => blockedProvider.stat(path.join(allowedLink, 'allowed.txt')), { statusCode: 403 });
+
+  const deleteLink = path.join(rootPath, 'delete-link');
+  await fs.promises.symlink(outsideTarget, deleteLink, 'junction');
+  await provider.delete(deleteLink, { recursive: true });
+  await assert.rejects(() => fs.promises.lstat(deleteLink), { code: 'ENOENT' });
+  assert.equal(await fs.promises.readFile(path.join(outsideTarget, 'secret.txt'), 'utf8'), 'secret');
+
+  const treePath = path.join(rootPath, 'tree');
+  await fs.promises.mkdir(treePath);
+  await fs.promises.symlink(outsideTarget, path.join(treePath, 'external-link'), 'junction');
+  await provider.delete(treePath, { recursive: true });
+  assert.equal(await fs.promises.readFile(path.join(outsideTarget, 'secret.txt'), 'utf8'), 'secret');
+});

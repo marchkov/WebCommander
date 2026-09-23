@@ -503,3 +503,36 @@ test('failed moves caused by safety conflicts preserve the source', async () => 
   }), error => error.code === 'EEXIST' && error.conflictType === 'destination_inside_source');
   assert.equal((await fs.promises.stat(sourcePath)).isDirectory(), true);
 });
+
+test('TransferService rejects escaping local symlink sources and destinations', async t => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const outsideRoot = path.join(path.dirname(fixture.localRoot), 'transfer-outside');
+  const escapeLink = path.join(fixture.localRoot, 'escape-link');
+  await fs.promises.mkdir(outsideRoot);
+  await fs.promises.writeFile(path.join(outsideRoot, 'secret.bin'), Buffer.from([4, 5, 6]));
+
+  try {
+    await fs.promises.symlink(outsideRoot, escapeLink, 'junction');
+  } catch (error) {
+    t.skip(`symlink creation unavailable: ${error.code || error.message}`);
+    return;
+  }
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath: path.join(escapeLink, 'secret.bin'),
+    destinationProvider: fixture.sftpA,
+    destinationPath: '/remote/secret.bin',
+  }), { statusCode: 403 });
+
+  const sourcePath = path.join(fixture.localRoot, 'source.bin');
+  await fs.promises.writeFile(sourcePath, Buffer.from([1, 2, 3]));
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath,
+    destinationProvider: fixture.local,
+    destinationPath: path.join(escapeLink, 'new.bin'),
+  }), { statusCode: 403 });
+  assert.equal(await fs.promises.readFile(sourcePath).then(buffer => buffer.length), 3);
+});

@@ -18,49 +18,63 @@ class LocalProvider extends FileProvider {
     this.rootPath = path.resolve(rootPath);
     this.allowedPaths = allowedPaths;
     this.blockedPaths = blockedPaths;
+    this.realAllowedPaths = null;
+    this.realBlockedPaths = null;
   }
 
   async list(targetPath) {
-    const resolvedPath = this.resolvePath(targetPath);
+    const resolvedPath = (await this.validateExistingPath(targetPath)).path;
     const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
 
     return Promise.all(entries.map(async entry => {
       const entryPath = path.join(resolvedPath, entry.name);
-      return this.toFileEntry(entryPath, entry.name, await fs.promises.stat(entryPath), resolvedPath);
+      const entryStats = await this.validateExistingPath(entryPath);
+      return this.toFileEntry(entryPath, entry.name, entryStats.stats, resolvedPath);
     }));
   }
 
   async stat(targetPath) {
-    const resolvedPath = this.resolvePath(targetPath);
-    const stats = await fs.promises.stat(resolvedPath);
-    return this.toFileEntry(resolvedPath, path.basename(resolvedPath), stats, path.dirname(resolvedPath));
+    const result = await this.validateExistingPath(targetPath);
+    return this.toFileEntry(result.path, path.basename(result.path), result.stats, path.dirname(result.path));
   }
 
   async read(targetPath) {
-    return fs.promises.readFile(this.resolvePath(targetPath), 'utf8');
+    const resolvedPath = await this.validateExistingPath(targetPath);
+    return fs.promises.readFile(resolvedPath.path, 'utf8');
   }
 
   async write(targetPath, data) {
-    const resolvedPath = this.resolvePath(targetPath);
+    const resolvedPath = await this.validateDestinationPath(targetPath);
     await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
     await fs.promises.writeFile(resolvedPath, data, 'utf8');
   }
 
   async mkdir(targetPath) {
-    const resolvedPath = this.resolvePath(targetPath);
+    const resolvedPath = await this.validateDestinationPath(targetPath);
     await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
     await fs.promises.mkdir(resolvedPath);
   }
 
   async delete(targetPath, options = {}) {
-    const resolvedPath = this.resolvePath(targetPath);
-    const stats = await fs.promises.stat(resolvedPath);
+    const lexicalPath = this.resolvePath(targetPath);
+    const linkStats = await fs.promises.lstat(lexicalPath);
+
+    if (linkStats.isSymbolicLink()) {
+      await this.validateLinkEntry(lexicalPath);
+      await fs.promises.unlink(lexicalPath);
+      return;
+    }
+
+    const result = await this.validateExistingPath(targetPath);
+    const resolvedPath = result.path;
+    const stats = result.stats;
 
     if (stats.isDirectory()) {
-      await fs.promises.rm(resolvedPath, {
-        recursive: options.recursive === true,
-        force: options.force === true,
-      });
+      if (options.recursive === true) {
+        await this.removeDirectory(resolvedPath);
+      } else {
+        await fs.promises.rm(resolvedPath, { force: options.force === true });
+      }
       return;
     }
 
@@ -68,8 +82,12 @@ class LocalProvider extends FileProvider {
   }
 
   async rename(oldPath, newPath) {
-    const resolvedOldPath = this.resolvePath(oldPath);
-    const resolvedNewPath = this.resolvePath(newPath);
+    const lexicalOldPath = this.resolvePath(oldPath);
+    const oldStats = await fs.promises.lstat(lexicalOldPath);
+    const resolvedOldPath = oldStats.isSymbolicLink()
+      ? (await this.validateLinkEntry(lexicalOldPath)).path
+      : (await this.validateExistingPath(oldPath)).path;
+    const resolvedNewPath = await this.validateDestinationPath(newPath);
     await fs.promises.rename(resolvedOldPath, resolvedNewPath);
   }
 
@@ -104,11 +122,12 @@ class LocalProvider extends FileProvider {
   }
 
   createReadStream(targetPath) {
-    return fs.createReadStream(this.resolvePath(targetPath));
+    const result = this.validateExistingPathSync(targetPath);
+    return fs.createReadStream(result.path);
   }
 
   createWriteStream(targetPath) {
-    return fs.createWriteStream(this.resolvePath(targetPath));
+    return fs.createWriteStream(this.validateDestinationPathSync(targetPath));
   }
 
   resolvePath(targetPath) {
@@ -126,6 +145,168 @@ class LocalProvider extends FileProvider {
     }
 
     return validation.path;
+  }
+
+  async validateExistingPath(targetPath) {
+    const lexicalPath = this.resolvePath(targetPath);
+    const stats = await fs.promises.lstat(lexicalPath);
+    const realPath = await fs.promises.realpath(lexicalPath);
+    await this.validateRealPath(realPath);
+    return { path: lexicalPath, realPath, stats: stats.isSymbolicLink() ? await fs.promises.stat(lexicalPath) : stats };
+  }
+
+  async validateDestinationPath(targetPath) {
+    const lexicalPath = this.resolvePath(targetPath);
+    const ancestor = await this.resolveNearestExistingAncestor(lexicalPath);
+    await this.validateRealPath(ancestor.realPath);
+    return lexicalPath;
+  }
+
+  async validateLinkEntry(lexicalPath) {
+    const ancestor = await this.resolveNearestExistingAncestor(path.dirname(lexicalPath));
+    await this.validateRealPath(ancestor.realPath);
+    return { path: lexicalPath, realPath: lexicalPath };
+  }
+
+  async resolveNearestExistingAncestor(targetPath) {
+    let currentPath = targetPath;
+    while (true) {
+      try {
+        await fs.promises.lstat(currentPath);
+        return { path: currentPath, realPath: await fs.promises.realpath(currentPath) };
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) throw error;
+        currentPath = parentPath;
+      }
+    }
+  }
+
+  async validateRealPath(realPath) {
+    const [allowedPaths, blockedPaths] = await Promise.all([
+      this.getRealConfiguredPaths('allowed'),
+      this.getRealConfiguredPaths('blocked'),
+    ]);
+
+    if (blockedPaths.some(blockedPath => this.isWithin(blockedPath, realPath))) {
+      throw this.pathSecurityError('Path is blocked');
+    }
+
+    if (allowedPaths.length > 0 && !allowedPaths.some(allowedPath => this.isWithin(allowedPath, realPath))) {
+      throw this.pathSecurityError('Path not in allowed directories');
+    }
+  }
+
+  async getRealConfiguredPaths(kind) {
+    const property = kind === 'allowed' ? 'realAllowedPaths' : 'realBlockedPaths';
+    if (this[property]) return this[property];
+
+    const configuredPaths = kind === 'allowed'
+      ? (this.allowedPaths || [this.rootPath])
+      : (this.blockedPaths || []);
+    const resolvedPaths = [];
+    let hasMissingPath = false;
+    for (const configuredPath of configuredPaths) {
+      try {
+        resolvedPaths.push(await fs.promises.realpath(path.resolve(configuredPath)));
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        hasMissingPath = true;
+      }
+    }
+    if (!hasMissingPath) this[property] = resolvedPaths;
+    return resolvedPaths;
+  }
+
+  validateExistingPathSync(targetPath) {
+    const lexicalPath = this.resolvePath(targetPath);
+    const stats = fs.lstatSync(lexicalPath);
+    const realPath = fs.realpathSync(lexicalPath);
+    this.validateRealPathSync(realPath);
+    return { path: lexicalPath, realPath, stats: stats.isSymbolicLink() ? fs.statSync(lexicalPath) : stats };
+  }
+
+  validateDestinationPathSync(targetPath) {
+    const lexicalPath = this.resolvePath(targetPath);
+    const ancestor = this.resolveNearestExistingAncestorSync(lexicalPath);
+    this.validateRealPathSync(ancestor.realPath);
+    return lexicalPath;
+  }
+
+  resolveNearestExistingAncestorSync(targetPath) {
+    let currentPath = targetPath;
+    while (true) {
+      try {
+        fs.lstatSync(currentPath);
+        return { path: currentPath, realPath: fs.realpathSync(currentPath) };
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) throw error;
+        currentPath = parentPath;
+      }
+    }
+  }
+
+  validateRealPathSync(realPath) {
+    const allowedPaths = this.getRealConfiguredPathsSync('allowed');
+    const blockedPaths = this.getRealConfiguredPathsSync('blocked');
+    if (blockedPaths.some(blockedPath => this.isWithin(blockedPath, realPath))) {
+      throw this.pathSecurityError('Path is blocked');
+    }
+    if (allowedPaths.length > 0 && !allowedPaths.some(allowedPath => this.isWithin(allowedPath, realPath))) {
+      throw this.pathSecurityError('Path not in allowed directories');
+    }
+  }
+
+  getRealConfiguredPathsSync(kind) {
+    const property = kind === 'allowed' ? 'realAllowedPaths' : 'realBlockedPaths';
+    if (this[property]) return this[property];
+    const configuredPaths = kind === 'allowed'
+      ? (this.allowedPaths || [this.rootPath])
+      : (this.blockedPaths || []);
+    let hasMissingPath = false;
+    const resolvedPaths = configuredPaths.flatMap(configuredPath => {
+      try {
+        return [fs.realpathSync(path.resolve(configuredPath))];
+      } catch (error) {
+        if (error.code === 'ENOENT') {
+          hasMissingPath = true;
+          return [];
+        }
+        throw error;
+      }
+    });
+    if (!hasMissingPath) this[property] = resolvedPaths;
+    return resolvedPaths;
+  }
+
+  isWithin(basePath, targetPath) {
+    const relativePath = path.relative(basePath, targetPath);
+    return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+  }
+
+  pathSecurityError(message) {
+    const error = new Error(message);
+    error.code = 'PATH_VALIDATION';
+    error.statusCode = 403;
+    return error;
+  }
+
+  async removeDirectory(directoryPath) {
+    const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(directoryPath, entry.name);
+      if (entry.isSymbolicLink()) {
+        await fs.promises.unlink(entryPath);
+      } else if (entry.isDirectory()) {
+        await this.removeDirectory(entryPath);
+      } else {
+        await fs.promises.unlink(entryPath);
+      }
+    }
+    await fs.promises.rmdir(directoryPath);
   }
 
   async toFileEntry(entryPath, name, stats, parentPath) {
