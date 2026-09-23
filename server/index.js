@@ -8,10 +8,77 @@ const mime = require('mime-types');
 const archiver = require('archiver');
 const SSHManager = require('./sshManager');
 const { validatePath } = require('./pathUtils');
-const config = require('../config.json');
+
+const rawConfig = (() => {
+  try {
+    return require(path.join(__dirname, '..', 'config.json'));
+  } catch (error) {
+    return {};
+  }
+})();
+
+const parseEnvList = (value, fallback = []) => {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return String(value)
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+};
+
+const parseEnvInt = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const parseEnvBoolean = (value, fallback) => {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  return ['true', '1', 'yes', 'on'].includes(String(value).toLowerCase());
+};
+
+const parseJsonValue = (value, fallback) => {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return fallback;
+  }
+};
+
+const defaultRootPath = process.env.WC_ROOT_PATH || rawConfig.rootPath || path.resolve(__dirname, '..');
+const config = {
+  port: parseEnvInt(process.env.WC_PORT, rawConfig.port || 3001),
+  rootPath: process.env.WC_ROOT_PATH || rawConfig.rootPath || defaultRootPath,
+  auth: {
+    enabled: parseEnvBoolean(process.env.WC_AUTH_ENABLED, rawConfig.auth?.enabled ?? true),
+    users: parseJsonValue(process.env.WC_AUTH_USERS, rawConfig.auth?.users || [
+      { username: process.env.WC_AUTH_USERNAME || 'admin', password: process.env.WC_AUTH_PASSWORD || '***REMOVED***' }
+    ]),
+    sessionSecret: process.env.WC_SESSION_SECRET || rawConfig.auth?.sessionSecret || '***REMOVED***',
+    sessionMaxAge: parseEnvInt(process.env.WC_SESSION_MAX_AGE, rawConfig.auth?.sessionMaxAge || 86400000)
+  },
+  security: {
+    allowedPaths: parseEnvList(process.env.WC_ALLOWED_PATHS, rawConfig.security?.allowedPaths || [defaultRootPath]),
+    blockedPaths: parseEnvList(process.env.WC_BLOCKED_PATHS, rawConfig.security?.blockedPaths || []),
+    maxFileSize: parseEnvInt(process.env.WC_MAX_FILE_SIZE, rawConfig.security?.maxFileSize || 104857600),
+    allowedExtensions: parseEnvList(process.env.WC_ALLOWED_EXTENSIONS, rawConfig.security?.allowedExtensions || ['*'])
+  }
+};
 
 const app = express();
-const PORT = config.port || 3001;
+const PORT = config.port;
 
 // Middleware
 app.use(cors({

@@ -1,0 +1,30 @@
+services:
+  webcommander:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webcommander
+    restart: unless-stopped
+    ports:
+      - "${WC_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      WC_PORT: ${WC_PORT:-3001}
+      WC_ROOT_PATH: ${WC_ROOT_PATH:-/data/webcommander}
+      WC_ALLOWED_PATHS: ${WC_ALLOWED_PATHS:-/data/webcommander}
+      WC_BLOCKED_PATHS: ${WC_BLOCKED_PATHS:-/etc,/root,/var/log,/proc,/sys,/dev,/bin,/sbin,/usr,/lib}
+      WC_AUTH_ENABLED: ${WC_AUTH_ENABLED:-true}
+      WC_AUTH_USERNAME: ${WC_AUTH_USERNAME:-denisius}
+      WC_AUTH_PASSWORD: ${WC_AUTH_PASSWORD:-***REMOVED***}
+      WC_AUTH_USERS: ${WC_AUTH_USERS:-[{\"username\":\"denisius\",\"password\":\"***REMOVED***\"}]}
+      WC_SESSION_SECRET: ${WC_SESSION_SECRET:-***REMOVED***}
+      WC_SESSION_MAX_AGE: ${WC_SESSION_MAX_AGE:-86400000}
+      WC_MAX_FILE_SIZE: ${WC_MAX_FILE_SIZE:-104857600}
+      WC_ALLOWED_EXTENSIONS: ${WC_ALLOWED_EXTENSIONS:-*}
+    volumes:
+      - type: bind
+        source: ${HOST_ROOT_PATH:-D:/Example}
+        target: /data/webcommander
+        bind:
+          create_host_path: true
+

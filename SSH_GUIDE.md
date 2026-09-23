@@ -1,277 +1,48 @@
-# SSH Руководство для WebCommander
+# WebCommander SSH Guide
 
-## 📖 Обзор
+WebCommander can connect to remote servers through SSH and display a remote filesystem in either panel.
 
-WebCommander поддерживает полноценную работу с удалёнными серверами через SSH. Это позволяет управлять файлами на нескольких серверах одновременно, редактировать конфигурации, скачивать логи и многое другое — всё через удобный веб-интерфейс.
+## Password authentication
 
-## 🔧 Настройка SSH-подключений
+1. Click `L: Local` or `R: Local` in the toolbar.
+2. Enter the host, port, username, and password.
+3. Select `Password` authentication.
+4. Click `Connect`.
 
-### Подключение по паролю
+## SSH key authentication
 
-Самый простой способ подключения:
+1. Generate a key if needed:
 
-1. Нажмите кнопку **"L: Local"** или **"R: Local"** в toolbar
-2. Введите данные:
-   - **Host**: `192.168.1.100` или `server.example.com`
-   - **Port**: `22` (по умолчанию)
-   - **Username**: `root` или ваш пользователь
-   - **Authentication**: выберите **Password**
-   - **Password**: ваш пароль
-3. Нажмите **Connect**
-
-### Подключение по SSH-ключу
-
-Более безопасный способ, рекомендуемый для production:
-
-1. Сгенерируйте SSH-ключ (если ещё нет):
 ```bash
-ssh-keygen -t ed25519 -C "dockcommander"
+ssh-keygen -t ed25519 -C "webcommander"
 ```
 
-2. Скопируйте публичный ключ на сервер:
+2. Copy the public key to the server:
+
 ```bash
 ssh-copy-id user@server
 ```
 
-3. В WebCommander:
-   - **Authentication**: выберите **SSH Key**
-   - **Private Key**: вставьте содержимое приватного ключа (`~/.ssh/id_ed25519`)
-   - **Passphrase**: укажите, если ключ защищён паролем
+3. Select `SSH Key` and paste the private key. Enter its passphrase when required.
 
-## 🔐 Безопасность SSH-подключений
+## Security recommendations
 
-### Рекомендации
+- Prefer SSH keys over passwords.
+- Protect private keys with a passphrase.
+- Disable root login and password authentication where appropriate.
+- Restrict SSH access with `AllowUsers` and a firewall.
+- Use a non-default SSH port and keep OpenSSH updated.
 
-1. **Используйте SSH-ключи** вместо паролей
-2. **Защищайте ключи паролем** (passphrase)
-3. **Ограничьте доступ** с помощью `AllowUsers` в `/etc/ssh/sshd_config`
-4. **Используйте нестандартный порт** SSH (не 22)
-5. **Fail2ban** для защиты от brute-force атак
-6. **Регулярно обновляйте** OpenSSH
+## Panel operations
 
-### Настройка sshd_config
+- `F5` copies selected items.
+- Edit a remote text file by double-clicking it, then use `Ctrl+S` to save.
+- Cross-mode move is not supported; use copy and delete.
+- SSH-to-SSH transfer between different hosts is not currently supported.
+- SSH sessions are closed when a panel switches back to local mode.
 
-```bash
-sudo nano /etc/ssh/sshd_config
-```
+## Troubleshooting
 
-Рекомендуемые настройки:
+For connection refused errors, check the SSH service, port, and firewall. For authentication errors, verify the credentials or `authorized_keys` and check key permissions with `chmod 600 ~/.ssh/id_ed25519`.
 
-```
-# Запретить вход по паролю (только ключи)
-PasswordAuthentication no
-
-# Разрешить только определённых пользователей
-AllowUsers admin deploy
-
-# Изменить порт
-Port 2222
-
-# Запретить root вход
-PermitRootLogin no
-
-# Ограничить попытки
-MaxAuthTries 3
-
-# Отключить пустые пароли
-PermitEmptyPasswords no
-```
-
-Перезапустите SSH:
-```bash
-sudo systemctl restart sshd
-```
-
-## 📋 Операции между панелями
-
-### Локальный ↔ SSH
-
-#### Копирование файлов с SSH на локальный сервер
-
-1. Переключите одну панель в SSH-режим
-2. Выберите файлы на SSH-панели
-3. Нажмите **F5** (Copy)
-4. Файлы будут скачаны на локальный сервер в текущую директорию активной панели
-
-#### Редактирование файлов на SSH
-
-1. Переключите панель в SSH-режим
-2. Найдите нужный файл
-3. Двойной клик для открытия в редакторе
-4. Внесите изменения
-5. Нажмите **Ctrl+S** или кнопку Save
-
-### Ограничения
-
-- **Перемещение (F6)** между локальным и SSH не поддерживается (используйте копирование + удаление)
-- **SSH → SSH** трансфер между разными серверами пока не реализован
-- **Загрузка файлов на SSH** пока не поддерживается через UI (только скачивание)
-
-## 🛠️ Решение проблем
-
-### Ошибка подключения
-
-**Проблема**: `SSH connection failed: Connection refused`
-
-**Решение**:
-- Проверьте, что SSH-сервер запущен: `sudo systemctl status sshd`
-- Убедитесь, что порт правильный
-- Проверьте firewall: `sudo ufw allow 22/tcp`
-
-**Проблема**: `SSH connection failed: Authentication failed`
-
-**Решение**:
-- Проверьте логин и пароль
-- Для ключей: убедитесь, что публичный ключ добавлен в `~/.ssh/authorized_keys`
-- Проверьте права на ключи: `chmod 600 ~/.ssh/id_ed25519`
-
-### Таймаут соединения
-
-**Проблема**: Соединение обрывается через некоторое время
-
-**Решение**:
-Сервер автоматически поддерживает keepalive соединения. Если проблема сохраняется:
-
-```bash
-# На клиенте (~/.ssh/config)
-Host *
-    ServerAliveInterval 60
-    ServerAliveCountMax 3
-
-# На сервере (/etc/ssh/sshd_config)
-ClientAliveInterval 60
-ClientAliveCountMax 3
-```
-
-### Медленная работа
-
-**Проблема**: SSH-панель работает медленно
-
-**Решение**:
-- Проверьте скорость соединения: `ping server`
-- Используйте сжатие: добавьте в ssh_config `Compression yes`
-- Уменьшите количество файлов в директории
-- Используйте более быстрый SSH-сервер (OpenSSH vs Dropbear)
-
-## 📊 Мониторинг SSH-сессий
-
-### Просмотр активных сессий
-
-Через API:
-```bash
-curl http://localhost:3001/api/ssh/sessions \
-  -H "Cookie: connect.sid=YOUR_SESSION_ID"
-```
-
-Ответ:
-```json
-[
-  {
-    "sessionId": "ssh_1234567890_abc123",
-    "host": "192.168.1.100",
-    "port": 22,
-    "username": "admin",
-    "connectedAt": "2026-01-15T10:30:00.000Z"
-  }
-]
-```
-
-### Логи SSH-операций
-
-Все SSH-операции логируются на сервере:
-
-```bash
-# PM2
-pm2 logs dockcommander
-
-# Systemd
-sudo journalctl -u dockcommander -f
-```
-
-## 🔧 Расширенная конфигурация
-
-### Использование SSH-агента
-
-Если вы используете SSH-агент, можете настроить автоматическое подключение:
-
-```bash
-# Добавьте ключ в агент
-ssh-add ~/.ssh/id_ed25519
-
-# Проверьте
-ssh-add -l
-```
-
-### Множественные подключения
-
-Вы можете одновременно подключиться к нескольким серверам:
-- Левая панель → Сервер A
-- Правая панель → Сервер B
-- Или одна локальная, другая SSH
-
-### Автоматическое переподключение
-
-При обрыве соединения просто нажмите кнопку переключения панели и подключитесь заново. Сессия будет создана заново.
-
-## 📝 Примеры использования
-
-### 1. Редактирование конфигов Nginx
-
-```
-1. Подключитесь к серверу через SSH
-2. Перейдите в /etc/nginx/sites-available/
-3. Откройте конфиг сайта в редакторе
-4. Внесите изменения
-5. Сохраните (Ctrl+S)
-6. Выполните команду через SSH: nginx -t && systemctl reload nginx
-```
-
-### 2. Скачивание логов
-
-```
-1. Подключитесь к серверу через SSH
-2. Перейдите в /var/log/
-3. Выберите нужные логи
-4. Переключите другую панель в локальный режим
-5. Нажмите F5 для копирования
-6. Логи скачаются в текущую локальную директорию
-```
-
-### 3. Деплой файлов
-
-```
-1. Локальная панель: выберите файлы для деплоя
-2. SSH-панель: перейдите в директорию приложения
-3. Нажмите F5 для копирования (загрузка на сервер)
-4. Выполните команду перезапуска через SSH
-```
-
-### 4. Сравнение конфигураций
-
-```
-1. Левая панель (локальная): откройте локальный конфиг
-2. Правая панель (SSH): откройте серверный конфиг
-3. Сравните визуально в редакторах
-4. Скопируйте нужные изменения
-```
-
-## 🚨 Важные замечания
-
-1. **Безопасность ключей**: Никогда не храните приватные ключи в публичных репозиториях
-2. **Сессии**: SSH-сессии закрываются при переключении панели обратно в локальный режим
-3. **Права доступа**: Убедитесь, что пользователь SSH имеет необходимые права на файлы
-4. **Производительность**: Для больших файлов (>100MB) рекомендуется использовать SCP/SFTP клиенты
-5. **Лимиты**: Максимальный размер файла для редактирования зависит от памяти сервера
-
-## 📞 Поддержка
-
-При возникновении проблем с SSH:
-
-1. Проверьте логи сервера
-2. Убедитесь, что SSH-сервер доступен: `ssh user@host`
-3. Проверьте права на ключи
-4. Создайте issue в репозитории с описанием проблемы
-
----
-
-**Приятной работы с SSH!** 🔐🚀
+The Russian version is available as [SSH_GUIDE.ru.md](SSH_GUIDE.ru.md).

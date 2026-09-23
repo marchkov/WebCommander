@@ -1,264 +1,77 @@
 # WebCommander
 
-Двухпанельный файловый менеджер в стиле Total Commander с веб-интерфейсом и серверной частью для работы с реальными файлами.
+A two-panel web file manager with local file operations, SSH connections, authentication, and an integrated text editor.
 
-## 🚀 Возможности
+## Features
 
-- **Двухпанельный интерфейс** - удобная навигация и операции с файлами
-- **Работа с реальными файлами** - полный доступ к файловой системе сервера
-- **SSH подключения** - работа с удалёнными серверами прямо из панелей
-- **Система аутентификации** - защита доступа логином и паролем
-- **Редактор файлов** - встроенный редактор для текстовых файлов (локально и SSH)
-- **Безопасность** - настройка разрешенных и заблокированных путей
-- **Горячие клавиши** - F5 (копировать), F6 (переместить), F7 (создать папку), F8 (удалить)
-- **Загрузка/скачивание файлов** - поддержка загрузки файлов и скачивания папок в ZIP
+- Two-panel file management interface
+- Local file browsing and operations
+- SSH connections for remote servers
+- Authentication and session protection
+- Built-in text editor for local and SSH files
+- Copy, move, rename, delete, upload, download, and ZIP operations
+- Keyboard shortcuts: F5 copy, F6 move, F7 new folder, F8 delete
+- Docker and Docker Compose support
 
-## 🎮 Demo режим
+## Requirements
 
-WebCommander может работать в **demo режиме** без сервера! Это удобно для тестирования интерфейса в браузере.
+- Node.js 18+ for a local installation
+- Docker Desktop for containerized deployment
 
-### Как использовать demo режим:
+## Local development
 
-1. Просто откройте `index.html` в браузере
-2. Войдите с любыми данными (например: `admin` / `***REMOVED***`)
-3. Система автоматически переключится в demo режим
-4. Вы сможете протестировать весь интерфейс с mock данными
-
-**Особенности demo режима:**
-- ✅ Полный интерфейс работает
-- ✅ Навигация по папкам
-- ✅ Редактирование файлов (в памяти)
-- ✅ SSH подключения (имитация)
-- ❌ Реальные файлы не читаются/пишутся
-- ❌ Изменения не сохраняются после перезагрузки
-
-В demo режиме в toolbar отображается жёлтый индикатор **"Demo Mode"**.
-
----
-
-## 📋 Требования
-
-- Node.js 18+ 
-- npm или yarn
-
-## 🛠️ Установка
-
-1. Клонируйте репозиторий или скачайте исходный код:
-```bash
-git clone <repository-url>
-cd dockcommander
-```
-
-2. Установите зависимости:
 ```bash
 npm install
-```
-
-3. Настройте конфигурацию в файле `config.json`:
-```json
-{
-  "port": 3001,
-  "rootPath": "/srv/webcommander/files",
-  "auth": {
-    "enabled": true,
-    "users": [
-      {
-        "username": "admin",
-        "password": "<set-your-password>"
-      }
-    ],
-    "sessionSecret": "<set-random-session-secret>",
-    "sessionMaxAge": 86400000
-  },
-  "security": {
-    "allowedPaths": ["/srv/webcommander/files"],
-    "blockedPaths": ["/etc", "/root", "/var/log"],
-    "maxFileSize": 104857600,
-    "allowedExtensions": ["*"]
-  }
-}
-```
-
-## ⚙️ Конфигурация
-
-### Основные параметры
-
-- `port` - порт сервера (по умолчанию 3001)
-- `rootPath` - корневая директория для файлового менеджера
-
-### Аутентификация
-
-- `auth.enabled` - включить/выключить систему входа (true/false)
-- `auth.users` - массив пользователей с логином и паролем
-- `auth.sessionSecret` - секретный ключ для сессий (ОБЯЗАТЕЛЬНО измените в production!)
-- `auth.sessionMaxAge` - время жизни сессии в миллисекундах (по умолчанию 24 часа)
-
-### Безопасность
-
-- `security.allowedPaths` - массив разрешенных директорий (пользователь может работать только внутри них)
-- `security.blockedPaths` - массив заблокированных директорий (даже если они внутри allowedPaths)
-- `security.maxFileSize` - максимальный размер загружаемого файла в байтах (по умолчанию 100MB)
-- `security.allowedExtensions` - разрешенные расширения файлов (["*"] для всех)
-
-## 🚀 Запуск
-
-### Режим разработки
-
-```bash
-# Терминал 1: Запуск сервера
 node server/index.js
-
-# Терминал 2: Запуск фронтенда
 npm run dev
 ```
 
-Откройте http://localhost:3000 в браузере
+Open `http://localhost:3000` for the Vite development frontend. The production server uses port `3001` by default.
 
-### Production режим
+## Configuration
 
-1. Соберите фронтенд:
+The application supports `config.json` and environment variables. Docker deployments should use `.env`.
+
+Important variables:
+
+- `WC_PORT` - application port
+- `HOST_ROOT_PATH` - host directory mounted into the container
+- `WC_ROOT_PATH` - filesystem root inside the container
+- `WC_ALLOWED_PATHS` - comma-separated allowed paths
+- `WC_BLOCKED_PATHS` - comma-separated blocked paths
+- `WC_AUTH_ENABLED` - enable authentication
+- `WC_AUTH_USERNAME` and `WC_AUTH_PASSWORD` - single-user credentials
+- `WC_AUTH_USERS` - JSON array of users
+- `WC_SESSION_SECRET` - session secret
+- `WC_MAX_FILE_SIZE` - upload size limit in bytes
+
+## Docker
+
+The default Compose configuration mounts `D:/Example` to `/data/webcommander` and exposes port `3001`.
+
 ```bash
-npm run build
+docker compose up -d --build
 ```
 
-2. Запустите сервер:
+Open `http://localhost:3001` and sign in with the credentials configured in `.env`.
+
+To stop the application:
+
 ```bash
-NODE_ENV=production node server/index.js
+docker compose down
 ```
 
-Сервер будет обслуживать статические файлы из папки `dist` и API на порту 3001
+See [DEPLOY.md](DEPLOY.md) for server deployment and [SSH_GUIDE.md](SSH_GUIDE.md) for SSH usage. Russian versions are available as [README.ru.md](README.ru.md), [DEPLOY.ru.md](DEPLOY.ru.md), and [SSH_GUIDE.ru.md](SSH_GUIDE.ru.md).
 
-## 🔐 Безопасность
+## Security
 
-### Важные рекомендации:
+- Set a strong `WC_SESSION_SECRET`.
+- Use a strong application password.
+- Keep `WC_ALLOWED_PATHS` limited to the required directories.
+- Keep system paths in `WC_BLOCKED_PATHS`.
+- Use HTTPS behind a reverse proxy in production.
+- Run the server as an unprivileged user.
 
-1. **Измените sessionSecret** в config.json на случайную строку
-2. **Измените пароли** пользователей, особенно если используются демонстрационные значения
-3. **Настройте allowedPaths** - ограничьте доступ только нужными директориями
-4. **Используйте HTTPS** в production (настройте reverse proxy с SSL)
-5. **Запускайте от непривилегированного пользователя** (не root)
-
-### Пример настройки Nginx reverse proxy:
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name files.yourdomain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        
-        # Для загрузки больших файлов
-        client_max_body_size 100M;
-    }
-}
-```
-
-## 🔌 SSH Подключения
-
-WebCommander поддерживает работу с удалёнными серверами через SSH. Вы можете переключить любую панель в SSH-режим для работы с файлами на удалённом сервере.
-
-### Подключение к SSH
-
-1. Нажмите кнопку **"L: Local"** или **"R: Local"** в панели инструментов (в зависимости от того, какую панель хотите переключить)
-2. Заполните форму подключения:
-   - **Host** - IP-адрес или домен сервера
-   - **Port** - порт SSH (по умолчанию 22)
-   - **Username** - имя пользователя
-   - **Authentication** - пароль или SSH-ключ
-3. Нажмите **Connect**
-
-### Возможности SSH-режима
-
-- 📁 Навигация по файловой системе удалённого сервера
-- 📝 Просмотр и редактирование текстовых файлов
-- 📋 Копирование файлов с SSH на локальный сервер (через скачивание)
-- 🗑️ Удаление файлов и папок
-- 📂 Создание директорий
-- 🔄 Переключение между локальным и SSH-режимом в любой момент
-
-### Особенности
-
-- SSH-сессии хранятся на сервере и автоматически закрываются при переключении панели обратно в локальный режим
-- Поддерживается аутентификация по паролю и SSH-ключу (RSA, DSA, ECDSA, Ed25519)
-- Для SSH-ключей с паролем можно указать passphrase
-- Индикатор режима отображается в заголовке панели (зелёный бейдж "SSH")
-
-### Примеры использования
-
-- **Редактирование конфигов на сервере** - подключитесь к серверу и редактируйте файлы напрямую
-- **Скачивание логов** - переключите панель в SSH, скачайте логи на локальный сервер
-- **Управление файлами** - создавайте папки, удаляйте файлы на удалённых серверах
-- **Сравнение файлов** - откройте один файл локально, другой через SSH для сравнения
-
-## 📱 Использование
-
-### Вход в систему
-
-1. Откройте веб-интерфейс в браузере
-2. Введите логин и пароль (по умолчанию: admin / ***REMOVED***)
-3. После успешной авторизации откроется файловый менеджер
-
-### Основные операции
-
-- **Навигация** - двойной клик по папке для входа, кнопка ".." для возврата
-- **Выбор файлов** - клик для выбора, Ctrl+клик для множественного выбора
-- **Копирование (F5)** - копирует выбранные файлы в другую панель
-- **Перемещение (F6)** - перемещает выбранные файлы в другую панель
-- **Создание папки (F7)** - создает новую папку в текущей директории
-- **Удаление (F8)** - удаляет выбранные файлы/папки
-- **Редактирование** - двойной клик по текстовому файлу открывает редактор
-- **Скачивание** - используйте кнопку загрузки в панели инструментов
-
-### Горячие клавиши
-
-- `Tab` - переключение между панелями
-- `F5` - копировать
-- `F6` - переместить
-- `F7` - создать папку
-- `F8` - удалить
-- `Ctrl+R` - обновить
-- `Ctrl+S` - сохранить файл (в редакторе)
-- `Esc` - закрыть редактор
-
-## 🐛 Решение проблем
-
-### Ошибка "Cannot find module"
-```bash
-npm install
-```
-
-### Порт уже занят
-Измените `port` в config.json
-
-### Нет доступа к файлам
-Проверьте:
-- Права доступа пользователя, от которого запущен сервер
-- Настройки `allowedPaths` и `blockedPaths` в config.json
-
-### Не работает аутентификация
-- Проверьте, что `auth.enabled` установлен в `true`
-- Убедитесь, что пользователь существует в массиве `auth.users`
-
-## 📝 Лицензия
+## License
 
 MIT
-
-## 🤝 Поддержка
-
-При возникновении проблем создайте issue в репозитории.
-
----
-
-**WebCommander** - современный файловый менеджер для серверов 🚀
