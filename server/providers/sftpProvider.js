@@ -166,6 +166,19 @@ class SftpProvider extends FileProvider {
     return path.posix.join(normalizeRemotePath(basePath), name);
   }
 
+  normalizePath(remotePath) {
+    return this.resolvePathAfterInitialization(remotePath);
+  }
+
+  isSamePath(leftPath, rightPath) {
+    return this.normalizePath(leftPath) === this.normalizePath(rightPath);
+  }
+
+  isDescendantPath(parentPath, childPath) {
+    const relativePath = path.posix.relative(this.normalizePath(parentPath), this.normalizePath(childPath));
+    return relativePath !== '' && !relativePath.startsWith('..') && !path.posix.isAbsolute(relativePath);
+  }
+
   createReadStream(remotePath) {
     const resolvedPath = this.resolveStreamPath(remotePath);
     if (!this.sftp) {

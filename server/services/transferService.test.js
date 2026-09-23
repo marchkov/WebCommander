@@ -36,6 +36,19 @@ class FakeSftpProvider extends FileProvider {
     return path.posix.join(basePath, name);
   }
 
+  normalizePath(targetPath) {
+    return path.posix.normalize(targetPath);
+  }
+
+  isSamePath(leftPath, rightPath) {
+    return this.normalizePath(leftPath) === this.normalizePath(rightPath);
+  }
+
+  isDescendantPath(parentPath, childPath) {
+    const relativePath = path.posix.relative(this.normalizePath(parentPath), this.normalizePath(childPath));
+    return relativePath !== '' && !relativePath.startsWith('..') && !path.posix.isAbsolute(relativePath);
+  }
+
   async list(targetPath) {
     const resolvedPath = path.posix.normalize(targetPath);
     const entries = await fs.promises.readdir(this.remotePath(resolvedPath), { withFileTypes: true });
@@ -251,4 +264,144 @@ test('move deletes the source only after a successful copy', async () => {
     destinationPath: path.join(fixture.localRoot, 'existing.txt'),
   }), { code: 'EEXIST' });
   assert.equal(await fs.promises.readFile(failedSource, 'utf8'), 'keep me');
+});
+
+test('same local file is rejected before overwrite can truncate it', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const filePath = path.join(fixture.localRoot, 'same.txt');
+  await fs.promises.writeFile(filePath, Buffer.from([0, 1, 2, 255]));
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath: filePath,
+    destinationProvider: fixture.local,
+    destinationPath: filePath,
+    options: { overwrite: true },
+  }), error => error.statusCode === 409 && /same path/.test(error.message));
+  assert.deepEqual(await fs.promises.readFile(filePath), Buffer.from([0, 1, 2, 255]));
+});
+
+test('same SFTP file is rejected before opening a stream', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  await fs.promises.writeFile(path.join(fixture.sftpRootA, 'same.bin'), Buffer.from([7, 6, 5]));
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.sftpA,
+    sourcePath: '/remote/same.bin',
+    destinationProvider: fixture.sftpA,
+    destinationPath: '/remote/same.bin',
+    options: { overwrite: true },
+  }), error => error.statusCode === 409 && /same path/.test(error.message));
+  assert.deepEqual(await fs.promises.readFile(path.join(fixture.sftpRootA, 'same.bin')), Buffer.from([7, 6, 5]));
+});
+
+test('same-provider directory descendants are rejected before destination creation', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const localSource = path.join(fixture.localRoot, 'data');
+  await fs.promises.mkdir(localSource);
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath: localSource,
+    destinationProvider: fixture.local,
+    destinationPath: path.join(localSource, 'copy'),
+  }), error => error.statusCode === 409 && /inside the source/.test(error.message));
+  await assert.rejects(() => fs.promises.stat(path.join(localSource, 'copy')), { code: 'ENOENT' });
+
+  await fs.promises.mkdir(path.join(fixture.sftpRootA, 'data'));
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.sftpA,
+    sourcePath: '/remote/data',
+    destinationProvider: fixture.sftpA,
+    destinationPath: '/remote/data/subdir/backup',
+  }), error => error.statusCode === 409 && /inside the source/.test(error.message));
+  await assert.rejects(() => fs.promises.stat(path.join(fixture.sftpRootA, 'data', 'subdir')), { code: 'ENOENT' });
+});
+
+test('sibling paths are not considered descendants', async () => {
+  const fixture = await createFixture();
+  assert.equal(
+    fixture.local.isDescendantPath(
+      path.join(fixture.localRoot, 'data'),
+      path.join(fixture.localRoot, 'database'),
+    ),
+    false,
+  );
+  assert.equal(fixture.sftpA.isDescendantPath('/data', '/database'), false);
+});
+
+test('existing destination directories require overwrite and merge when enabled', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const sourcePath = path.join(fixture.localRoot, 'source');
+  const destinationPath = path.join(fixture.localRoot, 'destination');
+  await fs.promises.mkdir(sourcePath);
+  await fs.promises.mkdir(destinationPath);
+  await fs.promises.writeFile(path.join(sourcePath, 'new.txt'), 'new');
+  await fs.promises.writeFile(path.join(destinationPath, 'old.txt'), 'old');
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath,
+    destinationProvider: fixture.local,
+    destinationPath,
+  }), { code: 'EEXIST' });
+  assert.equal(await fs.promises.readFile(path.join(destinationPath, 'old.txt'), 'utf8'), 'old');
+
+  const result = await service.copy({
+    sourceProvider: fixture.local,
+    sourcePath,
+    destinationProvider: fixture.local,
+    destinationPath,
+    options: { overwrite: true },
+  });
+  assert.equal(result.directoriesCreated, 0);
+  assert.equal(await fs.promises.readFile(path.join(destinationPath, 'new.txt'), 'utf8'), 'new');
+});
+
+test('overwrite never changes a destination entry type', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const sourceFile = path.join(fixture.localRoot, 'source.txt');
+  const destinationDirectory = path.join(fixture.localRoot, 'destination');
+  await fs.promises.writeFile(sourceFile, 'file');
+  await fs.promises.mkdir(destinationDirectory);
+
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath: sourceFile,
+    destinationProvider: fixture.local,
+    destinationPath: destinationDirectory,
+    options: { overwrite: true },
+  }), { code: 'EEXIST' });
+
+  const sourceDirectory = path.join(fixture.localRoot, 'source-directory');
+  const destinationFile = path.join(fixture.localRoot, 'destination.txt');
+  await fs.promises.mkdir(sourceDirectory);
+  await fs.promises.writeFile(destinationFile, 'file');
+  await assert.rejects(() => service.copy({
+    sourceProvider: fixture.local,
+    sourcePath: sourceDirectory,
+    destinationProvider: fixture.local,
+    destinationPath: destinationFile,
+    options: { overwrite: true },
+  }), { code: 'EEXIST' });
+});
+
+test('failed moves caused by safety conflicts preserve the source', async () => {
+  const fixture = await createFixture();
+  const service = new TransferService();
+  const sourcePath = path.join(fixture.localRoot, 'move-source');
+  await fs.promises.mkdir(sourcePath);
+
+  await assert.rejects(() => service.move({
+    sourceProvider: fixture.local,
+    sourcePath,
+    destinationProvider: fixture.local,
+    destinationPath: path.join(sourcePath, 'child'),
+  }), { code: 'EEXIST' });
+  assert.equal((await fs.promises.stat(sourcePath)).isDirectory(), true);
 });

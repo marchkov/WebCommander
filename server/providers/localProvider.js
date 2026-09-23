@@ -77,6 +77,19 @@ class LocalProvider extends FileProvider {
     return path.join(basePath, name);
   }
 
+  normalizePath(targetPath) {
+    return this.resolvePath(targetPath);
+  }
+
+  isSamePath(leftPath, rightPath) {
+    return this.normalizePath(leftPath) === this.normalizePath(rightPath);
+  }
+
+  isDescendantPath(parentPath, childPath) {
+    const relativePath = path.relative(this.normalizePath(parentPath), this.normalizePath(childPath));
+    return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+  }
+
   createReadStream(targetPath) {
     return fs.createReadStream(this.resolvePath(targetPath));
   }

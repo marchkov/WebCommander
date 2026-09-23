@@ -1,8 +1,8 @@
 const { pipeline } = require('stream/promises');
 
 class TransferConflictError extends Error {
-  constructor(destinationPath) {
-    super(`Destination already exists: ${destinationPath}`);
+  constructor(destinationPath, message = `Destination already exists: ${destinationPath}`) {
+    super(message);
     this.name = 'TransferConflictError';
     this.code = 'EEXIST';
     this.statusCode = 409;
@@ -25,10 +25,14 @@ class TransferService {
 
     await this.initializeProvider(sourceProvider);
     await this.initializeProvider(destinationProvider);
+    await this.validateSameProviderPaths(sourceProvider, sourcePath, destinationProvider, destinationPath);
     const sourceEntry = await sourceProvider.stat(sourcePath);
+    const destinationEntry = await this.tryStat(destinationProvider, destinationPath);
+
+    this.validateDestinationRoot(sourceEntry, destinationEntry, destinationPath, context.overwrite);
 
     if (sourceEntry.type === 'folder') {
-      await this.copyDirectory(sourceProvider, sourcePath, destinationProvider, destinationPath, context);
+      await this.copyDirectory(sourceProvider, sourcePath, destinationProvider, destinationPath, context, true, destinationEntry);
     } else {
       await this.copyFile(sourceProvider, sourcePath, sourceEntry, destinationProvider, destinationPath, context);
     }
@@ -51,11 +55,16 @@ class TransferService {
     return result;
   }
 
-  async copyDirectory(sourceProvider, sourcePath, destinationProvider, destinationPath, context) {
-    const destinationEntry = await this.tryStat(destinationProvider, destinationPath);
+  async copyDirectory(sourceProvider, sourcePath, destinationProvider, destinationPath, context, isRoot = false, knownDestinationEntry = undefined) {
+    const destinationEntry = knownDestinationEntry === undefined
+      ? await this.tryStat(destinationProvider, destinationPath)
+      : knownDestinationEntry;
 
     if (destinationEntry) {
       if (destinationEntry.type !== 'folder') {
+        throw new TransferConflictError(destinationPath);
+      }
+      if (!isRoot && !context.overwrite) {
         throw new TransferConflictError(destinationPath);
       }
     } else {
@@ -75,6 +84,7 @@ class TransferService {
           destinationProvider,
           destinationChildPath,
           context,
+          false,
         );
       } else {
         await this.copyFile(
@@ -127,6 +137,53 @@ class TransferService {
 
     if (typeof provider.ready === 'function') {
       await provider.ready();
+    }
+  }
+
+  async validateSameProviderPaths(sourceProvider, sourcePath, destinationProvider, destinationPath) {
+    if (sourceProvider !== destinationProvider) {
+      return;
+    }
+
+    if (typeof sourceProvider.normalizePath !== 'function'
+      || typeof sourceProvider.isSamePath !== 'function'
+      || typeof sourceProvider.isDescendantPath !== 'function') {
+      throw new Error('Provider does not support safe same-provider path comparison');
+    }
+
+    const normalizedSource = sourceProvider.normalizePath(sourcePath);
+    const normalizedDestination = sourceProvider.normalizePath(destinationPath);
+
+    if (sourceProvider.isSamePath(normalizedSource, normalizedDestination)) {
+      throw new TransferConflictError(
+        destinationPath,
+        `Source and destination are the same path: ${destinationPath}`,
+      );
+    }
+
+    const sourceEntry = await sourceProvider.stat(sourcePath);
+    if (sourceEntry.type === 'folder' && sourceProvider.isDescendantPath(normalizedSource, normalizedDestination)) {
+      throw new TransferConflictError(
+        destinationPath,
+        `Destination is inside the source directory: ${destinationPath}`,
+      );
+    }
+  }
+
+  validateDestinationRoot(sourceEntry, destinationEntry, destinationPath, overwrite) {
+    if (!destinationEntry) {
+      return;
+    }
+
+    if (!overwrite) {
+      throw new TransferConflictError(destinationPath);
+    }
+
+    if (sourceEntry.type !== destinationEntry.type) {
+      throw new TransferConflictError(
+        destinationPath,
+        `Cannot replace ${destinationEntry.type} with ${sourceEntry.type}: ${destinationPath}`,
+      );
     }
   }
 
