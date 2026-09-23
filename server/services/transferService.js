@@ -1,12 +1,13 @@
 const { pipeline } = require('stream/promises');
 
 class TransferConflictError extends Error {
-  constructor(destinationPath, message = `Destination already exists: ${destinationPath}`) {
+  constructor(destinationPath, message = `Destination already exists: ${destinationPath}`, conflictType = 'destination_exists') {
     super(message);
     this.name = 'TransferConflictError';
     this.code = 'EEXIST';
     this.statusCode = 409;
     this.destinationPath = destinationPath;
+    this.conflictType = conflictType;
   }
 }
 
@@ -158,6 +159,7 @@ class TransferService {
       throw new TransferConflictError(
         destinationPath,
         `Source and destination are the same path: ${destinationPath}`,
+        'same_path',
       );
     }
 
@@ -166,6 +168,7 @@ class TransferService {
       throw new TransferConflictError(
         destinationPath,
         `Destination is inside the source directory: ${destinationPath}`,
+        'destination_inside_source',
       );
     }
   }
@@ -189,6 +192,7 @@ class TransferService {
       throw new TransferConflictError(
         destinationPath,
         `Cannot replace ${destinationEntry.type} with ${sourceEntry.type}: ${destinationPath}`,
+        'type_mismatch',
       );
     }
   }

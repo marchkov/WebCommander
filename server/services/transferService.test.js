@@ -229,7 +229,9 @@ test('enforces overwrite conflicts and supports explicit replacement', async () 
     sourcePath: path.join(fixture.localRoot, 'source.txt'),
     destinationProvider: fixture.local,
     destinationPath: path.join(fixture.localRoot, 'destination.txt'),
-  }), error => error.code === 'EEXIST' && error.statusCode === 409);
+  }), error => error.code === 'EEXIST'
+    && error.statusCode === 409
+    && error.conflictType === 'destination_exists');
   assert.equal(await fs.promises.readFile(path.join(fixture.localRoot, 'destination.txt'), 'utf8'), 'old');
 
   await service.copy({
@@ -282,7 +284,9 @@ test('same local file is rejected before overwrite can truncate it', async () =>
     destinationProvider: fixture.local,
     destinationPath: filePath,
     options: { overwrite: true },
-  }), error => error.statusCode === 409 && /same path/.test(error.message));
+  }), error => error.statusCode === 409
+    && error.conflictType === 'same_path'
+    && /same path/.test(error.message));
   assert.deepEqual(await fs.promises.readFile(filePath), Buffer.from([0, 1, 2, 255]));
 });
 
@@ -297,7 +301,9 @@ test('same SFTP file is rejected before opening a stream', async () => {
     destinationProvider: fixture.sftpA,
     destinationPath: '/remote/same.bin',
     options: { overwrite: true },
-  }), error => error.statusCode === 409 && /same path/.test(error.message));
+  }), error => error.statusCode === 409
+    && error.conflictType === 'same_path'
+    && /same path/.test(error.message));
   assert.deepEqual(await fs.promises.readFile(path.join(fixture.sftpRootA, 'same.bin')), Buffer.from([7, 6, 5]));
 });
 
@@ -333,7 +339,9 @@ test('different SFTP provider instances sharing a session reject descendant move
     sourcePath: '/remote/folder',
     destinationProvider,
     destinationPath: '/remote/folder/child',
-  }), error => error.statusCode === 409 && /inside the source/.test(error.message));
+  }), error => error.statusCode === 409
+    && error.conflictType === 'destination_inside_source'
+    && /inside the source/.test(error.message));
   assert.equal((await fs.promises.stat(sourcePath)).isDirectory(), true);
   assert.equal((await fs.promises.stat(path.join(sourcePath, 'file.txt'))).isFile(), true);
 });
@@ -396,7 +404,9 @@ test('same-provider directory descendants are rejected before destination creati
     sourcePath: localSource,
     destinationProvider: fixture.local,
     destinationPath: path.join(localSource, 'copy'),
-  }), error => error.statusCode === 409 && /inside the source/.test(error.message));
+  }), error => error.statusCode === 409
+    && error.conflictType === 'destination_inside_source'
+    && /inside the source/.test(error.message));
   await assert.rejects(() => fs.promises.stat(path.join(localSource, 'copy')), { code: 'ENOENT' });
 
   await fs.promises.mkdir(path.join(fixture.sftpRootA, 'data'));
@@ -436,7 +446,7 @@ test('existing destination directories require overwrite and merge when enabled'
     sourcePath,
     destinationProvider: fixture.local,
     destinationPath,
-  }), { code: 'EEXIST' });
+  }), error => error.code === 'EEXIST' && error.conflictType === 'destination_exists');
   assert.equal(await fs.promises.readFile(path.join(destinationPath, 'old.txt'), 'utf8'), 'old');
 
   const result = await service.copy({
@@ -464,7 +474,7 @@ test('overwrite never changes a destination entry type', async () => {
     destinationProvider: fixture.local,
     destinationPath: destinationDirectory,
     options: { overwrite: true },
-  }), { code: 'EEXIST' });
+  }), error => error.code === 'EEXIST' && error.conflictType === 'type_mismatch');
 
   const sourceDirectory = path.join(fixture.localRoot, 'source-directory');
   const destinationFile = path.join(fixture.localRoot, 'destination.txt');
@@ -476,7 +486,7 @@ test('overwrite never changes a destination entry type', async () => {
     destinationProvider: fixture.local,
     destinationPath: destinationFile,
     options: { overwrite: true },
-  }), { code: 'EEXIST' });
+  }), error => error.code === 'EEXIST' && error.conflictType === 'type_mismatch');
 });
 
 test('failed moves caused by safety conflicts preserve the source', async () => {
@@ -490,6 +500,6 @@ test('failed moves caused by safety conflicts preserve the source', async () => 
     sourcePath,
     destinationProvider: fixture.local,
     destinationPath: path.join(sourcePath, 'child'),
-  }), { code: 'EEXIST' });
+  }), error => error.code === 'EEXIST' && error.conflictType === 'destination_inside_source');
   assert.equal((await fs.promises.stat(sourcePath)).isDirectory(), true);
 });

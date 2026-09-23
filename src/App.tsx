@@ -346,38 +346,40 @@ function App() {
     const destinationSide: PanelSide = activePanel === 'left' ? 'right' : 'left';
     let completedItems = 0;
 
-    for (const itemId of panel.selectedItems) {
-      const item = panel.files.find(file => file.id === itemId);
-      if (!item) continue;
+    try {
+      for (const itemId of panel.selectedItems) {
+        const item = panel.files.find(file => file.id === itemId);
+        if (!item) continue;
 
-      const request = {
-        operation,
-        source: getProviderDescriptor(panel, item.id),
-        destination: getProviderDescriptor(targetPanel, joinPath(targetPanel.currentPath, item.name)),
-      } as const;
+        const request = {
+          operation,
+          source: getProviderDescriptor(panel, item.id),
+          destination: getProviderDescriptor(targetPanel, joinPath(targetPanel.currentPath, item.name)),
+        } as const;
 
-      try {
-        await api.transfer(request);
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 409) {
-          const overwrite = window.confirm(`${error.message}\n\nOverwrite the destination?`);
-          if (!overwrite) {
-            throw new Error('Transfer cancelled');
+        try {
+          await api.transfer(request);
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 409 && error.conflictType === 'destination_exists') {
+            const overwrite = window.confirm('Overwrite the destination?');
+            if (!overwrite) {
+              throw new Error('Transfer cancelled');
+            }
+
+            await api.transfer({ ...request, overwrite: true });
+          } else {
+            throw error;
           }
-
-          await api.transfer({ ...request, overwrite: true });
-        } else {
-          throw error;
         }
+
+        completedItems += 1;
       }
-
-      completedItems += 1;
+    } finally {
+      await Promise.all([
+        loadDirectory(panel.currentPath, sourceSide, panel),
+        loadDirectory(targetPanel.currentPath, destinationSide, targetPanel),
+      ]);
     }
-
-    await Promise.all([
-      loadDirectory(panel.currentPath, sourceSide, panel),
-      loadDirectory(targetPanel.currentPath, destinationSide, targetPanel),
-    ]);
 
     return completedItems;
   };

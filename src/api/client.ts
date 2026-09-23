@@ -20,13 +20,21 @@ export type TransferResult = {
   bytesCopied: number;
 };
 
+export type TransferConflictType =
+  | 'destination_exists'
+  | 'same_path'
+  | 'destination_inside_source'
+  | 'type_mismatch';
+
 export class ApiError extends Error {
   status: number;
+  conflictType?: TransferConflictType;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, conflictType?: TransferConflictType) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.conflictType = conflictType;
   }
 }
 
@@ -57,13 +65,15 @@ class ApiClient {
 
       if (!response.ok) {
         let message = 'Request failed';
+        let conflictType: TransferConflictType | undefined;
         try {
           const error = await response.json();
           message = error.error || message;
+          conflictType = error.conflictType;
         } catch {
           message = response.statusText || message;
         }
-        throw new ApiError(message, response.status);
+        throw new ApiError(message, response.status, conflictType);
       }
 
       return response.json();

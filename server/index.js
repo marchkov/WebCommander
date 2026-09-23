@@ -347,7 +347,7 @@ app.post('/api/files/copy', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Source not found' });
     }
     if (error.statusCode === 409) {
-      return res.status(409).json({ error: error.message });
+      return res.status(409).json({ error: error.message, conflictType: error.conflictType });
     }
     res.status(500).json({ error: error.message });
   }
