@@ -118,6 +118,18 @@ class SftpProvider extends FileProvider {
     return data;
   }
 
+  async realpath(remotePath) {
+    await this.initialize();
+    return this.call(this.sftp, 'realpath', this.resolvePathAfterInitialization(remotePath));
+  }
+
+  async lstat(remotePath) {
+    await this.initialize();
+    const resolvedPath = this.resolvePathAfterInitialization(remotePath);
+    const attrs = await this.call(this.sftp, 'lstat', resolvedPath);
+    return this.toFileEntry(resolvedPath, path.posix.basename(resolvedPath), attrs, path.posix.dirname(resolvedPath));
+  }
+
   async write(remotePath, data) {
     await this.initialize();
     const resolvedPath = this.resolvePathAfterInitialization(remotePath);

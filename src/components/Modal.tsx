@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -22,6 +22,10 @@ const Modal: React.FC<ModalProps> = ({
   message = '',
 }) => {
   const [value, setValue] = useState(defaultValue);
+
+  useEffect(() => {
+    if (isOpen) setValue(defaultValue);
+  }, [isOpen, defaultValue]);
 
   if (!isOpen) return null;
 

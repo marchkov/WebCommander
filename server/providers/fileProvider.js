@@ -18,6 +18,15 @@ class FileProvider {
     this.#notImplemented('stat');
   }
 
+  // Canonical existing path, including symbolic links, for containment checks.
+  async realpath(_path) {
+    this.#notImplemented('realpath');
+  }
+
+  async lstat(_path) {
+    this.#notImplemented('lstat');
+  }
+
   async read(_path) {
     this.#notImplemented('read');
   }

@@ -1,5 +1,26 @@
 # WebCommander
 
+### ZIP archives
+
+Select files or directories and choose **Pack to ZIP**. The suggested name is
+`archive.zip`, or `<directory>.zip` for one selected directory. Names are preserved
+relative to the selected items; binary files and empty directories are supported.
+Select `.zip` files and choose **Extract here** to unpack into the current panel.
+Both operations work with local and SFTP panels using backend streams.
+
+Existing archives are never overwritten during creation. Extraction reports a
+conflict by default; confirming overwrite replaces files, but never changes a
+file into a directory or vice versa. The destination folder itself may exist.
+On failure, files already extracted may remain; the panel refreshes to show them.
+Creation inside a selected directory, ambiguous duplicate names, link cycles,
+unsafe ZIP paths, and links escaping the extraction directory are rejected.
+
+API: `POST /api/archives/create` accepts `{ provider, sessionId?, sources, destination }`;
+`POST /api/archives/extract` accepts `{ provider, sessionId?, archive, destination, overwrite? }`.
+Provider is `local` or `sftp`; SFTP requires `sessionId`. Overwrite defaults to false.
+
+Backend checks: `node --test server/*.test.js server/providers/*.test.js server/services/*.test.js`.
+
 A two-panel web file manager with local file operations, SSH connections, authentication, and an integrated text editor.
 
 ## Features

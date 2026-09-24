@@ -11,6 +11,7 @@ const { validatePath } = require('./pathUtils');
 const LocalProvider = require('./providers/localProvider');
 const SftpProvider = require('./providers/sftpProvider');
 const TransferService = require('./services/transferService');
+const ArchiveService = require('./services/archiveService');
 
 const rawConfig = (() => {
   try {
@@ -88,6 +89,7 @@ const localProvider = new LocalProvider({
   blockedPaths: config.security.blockedPaths,
 });
 const transferService = new TransferService();
+const archiveService = new ArchiveService();
 const createSftpProvider = sessionId => new SftpProvider({
   sessionId,
   sshManager: SSHManager,
@@ -102,16 +104,13 @@ const createProviderFromDescriptor = async descriptor => {
     throw new Error('provider and path are required');
   }
 
-  if (descriptor.provider === 'local') {
-    return { provider: localProvider, path: localProvider.resolvePath(descriptor.path) };
-  }
-
-  if (descriptor.provider === 'sftp') {
-    const provider = await initializeSftpProvider(descriptor.sessionId);
-    return { provider, path: await provider.resolvePath(descriptor.path) };
-  }
-
-  throw new Error(`Unsupported provider: ${descriptor.provider}`);
+  const provider = await createProvider(descriptor.provider, descriptor.sessionId);
+  return { provider, path: await provider.resolvePath(descriptor.path) };
+};
+const createProvider = async (providerType, sessionId) => {
+  if (providerType === 'local') return localProvider;
+  if (providerType === 'sftp') return initializeSftpProvider(sessionId);
+  throw new Error(`Unsupported provider: ${providerType}`);
 };
 
 // Middleware
@@ -423,6 +422,66 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
   }
 });
 
+// Create a ZIP archive
+app.post('/api/archives/create', requireAuth, async (req, res) => {
+  const { provider: providerType, sessionId, sources, destination } = req.body;
+
+  if (!['local', 'sftp'].includes(providerType) || !Array.isArray(sources) || sources.length === 0 ||
+      sources.some(source => typeof source !== 'string' || !source.trim()) ||
+      typeof destination !== 'string' || !destination.trim() ||
+      (providerType === 'sftp' && (typeof sessionId !== 'string' || !sessionId.trim()))) {
+    return res.status(400).json({ error: 'provider, sources and destination are required' });
+  }
+
+  try {
+    const provider = await createProvider(providerType, sessionId);
+    const result = await archiveService.createZip({
+      provider,
+      sourcePaths: sources,
+      destinationPath: destination,
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message });
+    }
+    if (error.statusCode === 400 || error.statusCode === 403) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Extract a ZIP archive
+app.post('/api/archives/extract', requireAuth, async (req, res) => {
+  const { provider: providerType, sessionId, archive, destination, overwrite = false } = req.body;
+
+  if (!['local', 'sftp'].includes(providerType) || typeof archive !== 'string' || !archive.trim() ||
+      typeof destination !== 'string' || !destination.trim() || typeof overwrite !== 'boolean' ||
+      (providerType === 'sftp' && (typeof sessionId !== 'string' || !sessionId.trim()))) {
+    return res.status(400).json({ error: 'provider, archive and destination are required' });
+  }
+
+  try {
+    const provider = await createProvider(providerType, sessionId);
+    const result = await archiveService.extractZip({
+      provider,
+      archivePath: archive,
+      destinationPath: destination,
+      overwrite: overwrite === true,
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message });
+    }
+    if (error.statusCode === 400 || error.statusCode === 403) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Rename file or directory
 app.post('/api/files/rename', requireAuth, async (req, res) => {
   const { path: targetPath, newName } = req.body;
@@ -479,7 +538,7 @@ app.get('/api/files/download', requireAuth, async (req, res) => {
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename="${path.basename(info.path)}.zip"`);
       
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = new archiver.ZipArchive({ zlib: { level: 9 } });
       archive.pipe(res);
       archive.directory(info.path, false);
       archive.finalize();

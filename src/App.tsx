@@ -37,6 +37,7 @@ function App() {
     type: 'input' | 'confirm';
     title: string;
     placeholder?: string;
+    defaultValue?: string;
     message?: string;
     action?: (value: string) => void;
   }>({ isOpen: false, type: 'input', title: '' });
@@ -511,6 +512,85 @@ function App() {
     }
   };
 
+  const handlePack = () => {
+    const panel = getActivePanelState();
+    const selectedFiles = panel.selectedItems
+      .map(itemId => panel.files.find(file => file.id === itemId))
+      .filter((file): file is FileItem => Boolean(file));
+    if (selectedFiles.length === 0) return;
+
+    const defaultName = selectedFiles.length === 1 && selectedFiles[0]?.type === 'folder'
+      ? `${selectedFiles[0].name}.zip`
+      : 'archive.zip';
+
+    setModal({
+      isOpen: true,
+      type: 'input',
+      title: 'Pack to ZIP',
+      placeholder: defaultName,
+      defaultValue: defaultName,
+      action: async (archiveName: string) => {
+        if (!archiveName.trim() || /[\\/:\x00]/.test(archiveName) || /[. ]$/.test(archiveName)) {
+          showToast('Enter a file name without directory separators', 'error');
+          return;
+        }
+        const normalizedName = archiveName.toLowerCase().endsWith('.zip')
+          ? archiveName
+          : `${archiveName}.zip`;
+        const provider = panel.mode === 'ssh' ? 'sftp' : 'local';
+        const sources = selectedFiles.map(file => file.id);
+
+        try {
+          await api.createArchive(
+            provider,
+            sources,
+            joinPath(panel.currentPath, normalizedName),
+            panel.sshSessionId,
+          );
+          await loadDirectory(panel.currentPath, activePanel, panel);
+          showToast('Archive created', 'success');
+          setModal({ isOpen: false, type: 'input', title: '' });
+        } catch (error) {
+          console.error('Archive creation failed:', error);
+          showToast(error instanceof Error ? error.message : 'Failed to create archive', 'error');
+        }
+      },
+    });
+  };
+
+  const handleExtract = async () => {
+    const panel = getActivePanelState();
+    const archives = panel.selectedItems
+      .map(itemId => panel.files.find(file => file.id === itemId))
+      .filter((file): file is FileItem => Boolean(file && file.type === 'file' && file.name.toLowerCase().endsWith('.zip')));
+    if (archives.length === 0) return;
+
+    try {
+      const provider = panel.mode === 'ssh' ? 'sftp' : 'local';
+      for (const archive of archives) {
+        try {
+          await api.extractArchive(provider, archive.id, panel.currentPath, false, panel.sshSessionId);
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 409) {
+            const overwrite = window.confirm(`${error.message}\n\nOverwrite existing files?`);
+            if (!overwrite) throw new Error('Extraction cancelled');
+            await api.extractArchive(provider, archive.id, panel.currentPath, true, panel.sshSessionId);
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      showToast(`Extracted ${archives.length} archive(s)`, 'success');
+    } catch (error) {
+      console.error('Archive extraction failed:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to extract archive', 'error');
+    } finally {
+      // A conflict or invalid later entry can leave earlier extracted files.
+      await loadDirectory(panel.currentPath, activePanel, panel);
+    }
+  };
+
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (modal.isOpen || editor.isOpen || sshModal.isOpen) return;
@@ -557,12 +637,19 @@ function App() {
         onDelete={handleDelete}
         onMkdir={handleMkdir}
         onRefresh={handleRefresh}
+        onPack={handlePack}
+        onExtract={handleExtract}
         onSwap={handleSwap}
         onToggleSSHLeft={() => handleToggleSSH('left')}
         onToggleSSHRight={() => handleToggleSSH('right')}
         leftMode={leftPanel.mode}
         rightMode={rightPanel.mode}
         hasSelection={getActivePanelState().selectedItems.length > 0}
+        canExtract={getActivePanelState().files.some(file =>
+          getActivePanelState().selectedItems.includes(file.id)
+          && file.type === 'file'
+          && file.name.toLowerCase().endsWith('.zip')
+        )}
       />
 
       {/* Main Content */}
@@ -621,6 +708,7 @@ function App() {
         title={modal.title}
         type={modal.type}
         placeholder={modal.placeholder}
+        defaultValue={modal.defaultValue}
         message={modal.message}
         onClose={() => setModal({ isOpen: false, type: 'input', title: '' })}
         onConfirm={(value) => modal.action?.(value)}

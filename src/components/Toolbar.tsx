@@ -7,12 +7,15 @@ interface ToolbarProps {
   onDelete: () => void;
   onMkdir: () => void;
   onRefresh: () => void;
+  onPack: () => void;
+  onExtract: () => void;
   onSwap: () => void;
   onToggleSSHLeft: () => void;
   onToggleSSHRight: () => void;
   leftMode: 'local' | 'ssh';
   rightMode: 'local' | 'ssh';
   hasSelection: boolean;
+  canExtract: boolean;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -21,12 +24,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onDelete,
   onMkdir,
   onRefresh,
+  onPack,
+  onExtract,
   onSwap,
   onToggleSSHLeft,
   onToggleSSHRight,
   leftMode,
   rightMode,
   hasSelection,
+  canExtract,
 }) => {
   const buttons = [
     { icon: 'fa-copy', label: 'Copy (F5)', action: onCopy, disabled: !hasSelection, color: 'hover:text-cyan-400' },
@@ -34,6 +40,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
     { icon: 'fa-trash', label: 'Delete (F8)', action: onDelete, disabled: !hasSelection, color: 'hover:text-red-400' },
     { icon: 'fa-folder-plus', label: 'New Folder (F7)', action: onMkdir, disabled: false, color: 'hover:text-yellow-400' },
     { icon: 'fa-arrows-rotate', label: 'Refresh (Ctrl+R)', action: onRefresh, disabled: false, color: 'hover:text-emerald-400' },
+    { icon: 'fa-file-zipper', label: 'Pack to ZIP', action: onPack, disabled: !hasSelection, color: 'hover:text-amber-400' },
+    { icon: 'fa-box-open', label: 'Extract here', action: onExtract, disabled: !canExtract, color: 'hover:text-amber-300' },
     { icon: 'fa-right-left', label: 'Swap Panels', action: onSwap, disabled: false, color: 'hover:text-purple-400' },
   ];
 

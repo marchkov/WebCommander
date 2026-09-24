@@ -47,6 +47,19 @@ class LocalProvider extends FileProvider {
     return fs.promises.readFile(resolvedPath.path, 'utf8');
   }
 
+  async realpath(targetPath) {
+    return (await this.validateExistingPath(targetPath)).realPath;
+  }
+
+  async lstat(targetPath) {
+    const lexicalPath = this.resolvePath(targetPath);
+    const stats = await fs.promises.lstat(lexicalPath);
+    if (stats.isSymbolicLink()) await this.validateLinkEntry(lexicalPath);
+    else await this.validateExistingPath(lexicalPath);
+    return this.toFileEntry(lexicalPath, path.basename(lexicalPath), stats,
+      path.dirname(lexicalPath), stats.isSymbolicLink());
+  }
+
   async write(targetPath, data) {
     const resolvedPath = await this.validateDestinationPath(targetPath);
     await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });

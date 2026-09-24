@@ -20,6 +20,15 @@ export type TransferResult = {
   bytesCopied: number;
 };
 
+export type ArchiveProvider = 'local' | 'sftp';
+
+export type ArchiveResult = {
+  success: boolean;
+  destinationPath?: string;
+  filesExtracted?: number;
+  directoriesCreated?: number;
+};
+
 export type TransferConflictType =
   | 'destination_exists'
   | 'same_path'
@@ -158,6 +167,14 @@ class ApiClient {
         directoriesCreated: 0,
         bytesCopied: 0,
       } as T;
+    }
+
+    if (url === '/archives/create') {
+      return { success: true, destinationPath: '/demo/archive.zip' } as T;
+    }
+
+    if (url === '/archives/extract') {
+      return { success: true, filesExtracted: 1, directoriesCreated: 0 } as T;
     }
 
     if (url === '/files/rename') {
@@ -312,6 +329,20 @@ class ApiClient {
     return this.request<TransferResult>('/transfers', {
       method: 'POST',
       body: JSON.stringify(request),
+    });
+  }
+
+  async createArchive(provider: ArchiveProvider, sources: string[], destination: string, sessionId?: string) {
+    return this.request<ArchiveResult>('/archives/create', {
+      method: 'POST',
+      body: JSON.stringify({ provider, sessionId, sources, destination }),
+    });
+  }
+
+  async extractArchive(provider: ArchiveProvider, archive: string, destination: string, overwrite = false, sessionId?: string) {
+    return this.request<ArchiveResult>('/archives/extract', {
+      method: 'POST',
+      body: JSON.stringify({ provider, sessionId, archive, destination, overwrite }),
     });
   }
 
