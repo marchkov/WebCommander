@@ -1,5 +1,42 @@
 # WebCommander
 
+### Terminal backend (no terminal UI yet)
+
+`/api/terminal` is a WebSocket endpoint on the same HTTP server. It reuses the
+Express session cookie and requires login when authentication is enabled. Browser
+Origin must match Host; reverse proxies must preserve Host and forward upgrades.
+Each socket owns one shell. Send an initial JSON text message:
+
+```json
+{"type":"open","provider":"local","cwd":"D:/data","cols":120,"rows":30}
+```
+
+For SSH, use `"provider":"sftp"`, an existing `sessionId` belonging to the same
+web session, and an absolute POSIX `cwd`. No SSH credentials are accepted here.
+Then send `{"type":"input","data":"pwd\r"}`, `{"type":"resize","cols":120,"rows":30}`
+or `{"type":"close"}`. Columns must be 10–500, rows 2–200. Replies are `ready`,
+`output` (UTF-8 `data`), `error` (`message`) and `exit` (`code`, `signal`). `ready`
+means the channel accepts input; on SSH the escaped initial `cd` has been queued.
+Messages are limited to 64 KiB. Disconnect, shell exit and server shutdown clean
+up the shell; heartbeat checks detect lost connections.
+
+Local shells use node-pty (PowerShell preferred on Windows, `$SHELL`/bash/sh on
+Unix). LocalProvider validates the initial cwd, including symbolic links. This
+is **not a filesystem sandbox**: commands run with the server account's rights.
+SSH uses a PTY channel on the existing connection; `/api/ssh/exec` is unchanged.
+The Windows cleanup adapter includes a guarded workaround for node-pty 1.1's
+ConPTY cleanup; recheck it when upgrading node-pty.
+
+Linux installation requires Python, make and a C++ compiler for node-pty; the
+Dockerfile installs these build dependencies. Backend tests mock PTYs by default.
+To run the native smoke test in PowerShell:
+
+```powershell
+$env:WC_TEST_REAL_PTY = '1'
+node --test server/services/terminalPty.integration.test.js
+Remove-Item Env:WC_TEST_REAL_PTY
+```
+
 ### ZIP archives
 
 Select files or directories and choose **Pack to ZIP**. The suggested name is

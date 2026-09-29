@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN apk add --no-cache python3 make g++ && npm ci
 
 COPY . .
 RUN npm run build
@@ -25,7 +25,10 @@ ENV NODE_ENV=production \
     WC_ALLOWED_EXTENSIONS=*
 
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN apk add --no-cache libstdc++ \
+    && apk add --no-cache --virtual .pty-build-deps python3 make g++ \
+    && npm ci --omit=dev \
+    && apk del .pty-build-deps
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server

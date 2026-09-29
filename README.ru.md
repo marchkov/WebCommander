@@ -1,5 +1,44 @@
 # WebCommander
 
+### Backend терминалов (интерфейс ещё не добавлен)
+
+WebSocket `/api/terminal` работает на том же HTTP-сервере и использует cookie
+существующей Express-сессии. При включённой авторизации требуется вход.
+Origin браузера должен соответствовать Host; reverse proxy должен сохранять
+Host и передавать WebSocket-upgrade. Один сокет открывает один shell.
+Первое сообщение — JSON:
+
+```json
+{"type":"open","provider":"local","cwd":"D:/data","cols":120,"rows":30}
+```
+
+Для SSH укажите `"provider":"sftp"`, существующий `sessionId` этой веб-сессии и
+абсолютный POSIX-путь `cwd`. Логин, пароль и ключи здесь не принимаются.
+Дальше доступны `{"type":"input","data":"pwd\r"}`,
+`{"type":"resize","cols":120,"rows":30}` и `{"type":"close"}`.
+Допустимы 10–500 столбцов и 2–200 строк. Ответы: `ready`, `output` (UTF-8 `data`),
+`error` (`message`), `exit` (`code`, `signal`). `ready` означает готовность канала
+принимать ввод; для SSH начальная экранированная команда `cd` поставлена в очередь.
+Лимит сообщения — 64 КиБ. Закрытие сокета, выход shell и остановка сервера очищают
+ресурсы; heartbeat обнаруживает потерянные соединения.
+
+Локальный shell использует node-pty: PowerShell на Windows, `$SHELL`/bash/sh на
+Unix. LocalProvider проверяет стартовый каталог, включая ссылки. Это **не изоляция
+файловой системы**: команды выполняются с правами серверного пользователя.
+SSH использует PTY-канал существующего соединения. `/api/ssh/exec` сохранён.
+Windows-адаптер содержит локальный обход ошибки очистки ConPTY в node-pty 1.1;
+его следует перепроверить при обновлении зависимости.
+
+Для сборки node-pty на Linux нужны Python, make и C++-компилятор; Dockerfile
+устанавливает их. Основные тесты используют имитацию PTY. Проверка настоящего
+терминала в PowerShell:
+
+```powershell
+$env:WC_TEST_REAL_PTY = '1'
+node --test server/services/terminalPty.integration.test.js
+Remove-Item Env:WC_TEST_REAL_PTY
+```
+
 ### ZIP-архивы
 
 Выберите файлы или папки и нажмите **Pack to ZIP**. Предлагаемое имя —

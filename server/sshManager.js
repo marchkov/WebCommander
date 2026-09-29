@@ -1,12 +1,13 @@
 const { Client } = require('ssh2');
 const path = require('path');
+const { validateDimensions, closeShellChannel } = require('./services/terminalShell');
 
 // Хранилище активных SSH-соединений
 const connections = new Map();
 
 class SSHManager {
   // Подключение к серверу
-  static async connect(sessionId, config) {
+  static async connect(sessionId, config, ownerSessionId) {
     return new Promise((resolve, reject) => {
       const conn = new Client();
       
@@ -35,6 +36,7 @@ class SSHManager {
         connections.set(sessionId, {
           conn,
           config,
+          ownerSessionId,
           connectedAt: new Date()
         });
         resolve({ success: true, host: config.host, username: config.username });
@@ -60,6 +62,49 @@ class SSHManager {
       throw new Error('SSH session not found. Please connect first.');
     }
     return session;
+  }
+
+  // Allocate a PTY channel on the existing login, never a second connection.
+  static openShell(sessionId, { cols = 80, rows = 24, ownerSessionId, signal } = {}) {
+    validateDimensions(cols, rows);
+    const session = this.getConnection(sessionId);
+    if (ownerSessionId !== undefined && session.ownerSessionId !== ownerSessionId) {
+      throw new Error('SSH session does not belong to this web session');
+    }
+    return new Promise((resolve, reject) => {
+      const { conn } = session;
+      let settled = false;
+      const cleanup = () => {
+        signal?.removeEventListener('abort', onAbort);
+        conn.removeListener('close', onClose);
+        conn.removeListener('error', onError);
+      };
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const onAbort = () => fail(new Error('SSH shell opening cancelled'));
+      const onClose = () => fail(new Error('SSH connection closed'));
+      const onError = error => fail(error);
+      if (signal?.aborted) return onAbort();
+      signal?.addEventListener('abort', onAbort, { once: true });
+      conn.once('close', onClose);
+      conn.once('error', onError);
+      try {
+        conn.shell({ term: 'xterm-256color', cols, rows, height: 0, width: 0 }, (error, channel) => {
+          if (settled) {
+            if (channel) closeShellChannel(channel);
+            return;
+          }
+          if (error) return fail(error);
+          settled = true;
+          cleanup();
+          resolve(channel);
+        });
+      } catch (error) { fail(error); }
+    });
   }
 
   // Получить существующий SFTP-канал для сессии

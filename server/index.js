@@ -1,4 +1,5 @@
 const express = require('express');
+const http = require('http');
 const session = require('express-session');
 const cors = require('cors');
 const path = require('path');
@@ -12,6 +13,8 @@ const LocalProvider = require('./providers/localProvider');
 const SftpProvider = require('./providers/sftpProvider');
 const TransferService = require('./services/transferService');
 const ArchiveService = require('./services/archiveService');
+const TerminalService = require('./services/terminalService');
+const attachTerminalWebSocket = require('./terminalWebSocket');
 
 const rawConfig = (() => {
   try {
@@ -122,7 +125,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Session middleware
-app.use(session({
+const sessionMiddleware = session({
   secret: config.auth.sessionSecret,
   resave: false,
   saveUninitialized: false,
@@ -131,7 +134,8 @@ app.use(session({
     httpOnly: true,
     maxAge: config.auth.sessionMaxAge
   }
-}));
+});
+app.use(sessionMiddleware);
 
 // Auth middleware
 const requireAuth = (req, res, next) => {
@@ -604,7 +608,7 @@ app.post('/api/ssh/connect', requireAuth, async (req, res) => {
       password,
       privateKey,
       passphrase,
-    });
+    }, req.sessionID);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -793,7 +797,21 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Start server
-app.listen(PORT, () => {
+const server = http.createServer(app);
+const terminalService = new TerminalService({ localProvider, sshManager: SSHManager, authEnabled: config.auth.enabled });
+const terminals = attachTerminalWebSocket({ server, sessionMiddleware, terminalService, authEnabled: config.auth.enabled });
+// Synchronous PTY cleanup also runs for normal Node process termination.
+process.once('exit', () => terminalService.close());
+const shutdown = () => {
+  terminals.close();
+  SSHManager.disconnectAll();
+  server.close();
+  const deadline = setTimeout(() => process.exit(0), 5000);
+  deadline.unref();
+};
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
+server.listen(PORT, () => {
   console.log(`WebCommander server running on port ${PORT}`);
   console.log(`Root path: ${config.rootPath}`);
   console.log(`Auth enabled: ${config.auth.enabled}`);

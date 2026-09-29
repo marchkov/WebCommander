@@ -22,13 +22,15 @@
     "lucide-react": "^0.294.0",
     "mime-types": "^3.0.2",
     "multer": "^2.4.0",
+    "node-pty": "^1.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
     "recharts": "^2.10.0",
     "ssh2": "^1.17.0",
     "unzipper": "^0.12.5",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",
