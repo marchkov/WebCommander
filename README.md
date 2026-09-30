@@ -1,6 +1,20 @@
 # WebCommander
 
-### Terminal backend (no terminal UI yet)
+### Panel terminals
+
+Use **>_** in either panel's header to open its terminal drawer. Left and right
+terminals are independent. Local panels open a local PTY; SSH panels reuse that
+panel's existing SSH session. The shell starts in the panel's current directory.
+Navigating the file list afterwards does not change the running shell's cwd.
+Close/reopen or **Reconnect** starts a new shell in the then-current directory.
+Output stays visible after exit. Changing the panel's provider or SSH session
+closes its drawer; after an SSH disconnect, reconnect the SSH panel first.
+File-manager hotkeys remain available outside the focused terminal.
+
+Client protocol tests: `node --test tests/terminal.test.cjs`.
+The Vite `/api` proxy forwards both HTTP requests and WebSocket upgrades.
+
+#### Terminal backend
 
 `/api/terminal` is a WebSocket endpoint on the same HTTP server. It reuses the
 Express session cookie and requires login when authentication is enabled. Browser

@@ -1,5 +1,8 @@
-import React from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { FileItem } from '../types';
+import { panelIdentity } from '../terminal/session';
+
+const Terminal = lazy(() => import('./Terminal'));
 
 interface FilePanelProps {
   title: string;
@@ -17,6 +20,7 @@ interface FilePanelProps {
   mode?: 'local' | 'ssh';
   sshHost?: string;
   sshUser?: string;
+  sshSessionId?: string;
 }
 
 function formatSize(bytes: number): string {
@@ -99,7 +103,12 @@ const FilePanel: React.FC<FilePanelProps> = ({
   mode = 'local',
   sshHost,
   sshUser,
+  sshSessionId,
 }) => {
+  const identity = panelIdentity({ mode, sshSessionId, currentPath });
+  const [terminalOwner, setTerminalOwner] = useState<string | null>(null);
+  const terminalOpen = terminalOwner === identity;
+  useEffect(() => { setTerminalOwner(null); }, [identity]);
   const sortedFiles = [...files].sort((a, b) => {
     // Folders first
     if (a.type !== b.type) {
@@ -140,7 +149,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
 
   return (
     <div
-      className={`flex flex-col h-full border ${
+      className={`flex flex-col h-full min-h-0 border ${
         isActive ? 'border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.1)]' : 'border-gray-700/50'
       } rounded-lg overflow-hidden bg-gray-900/80 backdrop-blur-sm`}
       onClick={onPanelClick}
@@ -164,6 +173,10 @@ const FilePanel: React.FC<FilePanelProps> = ({
             </>
           )}
         </div>
+        <button title={terminalOpen ? 'Close panel terminal' : 'Open panel terminal'} aria-label={`${title} terminal`}
+          aria-expanded={terminalOpen} disabled={mode === 'ssh' && !sshSessionId}
+          className="px-2 py-1 text-cyan-400 hover:bg-gray-700 rounded disabled:text-gray-600"
+          onClick={event => { event.stopPropagation(); setTerminalOwner(terminalOpen ? null : identity); }}>&gt;_</button>
         <div className="text-xs text-gray-500 flex items-center gap-2">
           {mode === 'ssh' && (
             <span className="px-1.5 py-0.5 bg-green-900/30 border border-green-700/50 rounded text-green-400 text-[10px] font-medium">
@@ -222,7 +235,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
       </div>
 
       {/* File List */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
         {/* Parent directory link */}
         {currentPath !== '/' && (
           <div
@@ -285,6 +298,10 @@ const FilePanel: React.FC<FilePanelProps> = ({
           </div>
         )}
       </div>
+
+      {terminalOpen && <Suspense fallback={<div className="h-[250px] shrink-0 p-3 text-xs text-gray-400" role="status">Loading terminal…</div>}><Terminal onClose={() => setTerminalOwner(null)} panel={{
+        mode, currentPath, sshSessionId, sshUser, sshHost, files, selectedItems, sortBy, sortOrder,
+      }} /></Suspense>}
 
       {/* Status Bar */}
       <div className="px-3 py-1.5 bg-gray-800/50 border-t border-gray-700/30 flex items-center justify-between">

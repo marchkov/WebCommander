@@ -593,6 +593,7 @@ function App() {
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.target instanceof Element && e.target.closest('[data-terminal-drawer]')) return;
     if (modal.isOpen || editor.isOpen || sshModal.isOpen) return;
     
     switch (e.key) {
@@ -670,6 +671,7 @@ function App() {
             onDoubleClick={handleFileDoubleClick}
             mode={leftPanel.mode}
             sshHost={leftPanel.sshHost}
+            sshSessionId={leftPanel.sshSessionId}
             sshUser={leftPanel.sshUser}
           />
         </div>
@@ -689,6 +691,7 @@ function App() {
             onDoubleClick={handleFileDoubleClick}
             mode={rightPanel.mode}
             sshHost={rightPanel.sshHost}
+            sshSessionId={rightPanel.sshSessionId}
             sshUser={rightPanel.sshUser}
           />
         </div>
