@@ -12,6 +12,7 @@ export interface FileItem {
 }
 
 export interface PanelState {
+  focusedItemId?: string;
   currentPath: string;
   selectedItems: string[];
   files: FileItem[];

@@ -1,5 +1,15 @@
 # WebCommander
 
+### Keyboard navigation
+
+In the active file panel, **↑/↓** moves the current row in the displayed sort
+order, including `..`. **Enter** opens the current folder or edits the current
+file; **Backspace** goes to the parent folder. Drive roots and `/` have no parent
+row. **F3** views a file read-only; **F4** edits it. Viewing hides Save and blocks
+Ctrl/Cmd+S writes. Ctrl/Cmd-click still toggles multiple selections; arrow keys
+return to a single current selection. Terminal and text-input focus retain their
+normal key handling.
+
 ### Panel terminals
 
 Use **>_** in either panel's header to open its terminal drawer. Left and right

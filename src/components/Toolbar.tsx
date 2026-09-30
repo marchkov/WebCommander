@@ -112,12 +112,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         )}
         <div className="hidden lg:flex items-center gap-2 text-xs text-gray-500">
+          <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F3</span>
+          <span>View</span>
+          <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F4</span>
+          <span>Edit</span>
           <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F5</span>
           <span>Copy</span>
           <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F6</span>
           <span>Move</span>
           <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F7</span>
-          <span>Mkdir</span>
+          <span className="whitespace-nowrap">New Folder</span>
           <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono">F8</span>
           <span>Delete</span>
         </div>

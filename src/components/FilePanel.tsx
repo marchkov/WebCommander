@@ -1,6 +1,8 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { FileItem } from '../types';
 import { panelIdentity } from '../terminal/session';
+import { sortFiles } from '../utils/navigation';
+import { isRootPath } from '../utils/paths';
 
 const Terminal = lazy(() => import('./Terminal'));
 
@@ -9,6 +11,7 @@ interface FilePanelProps {
   files: FileItem[];
   currentPath: string;
   selectedItems: string[];
+  focusedItemId?: string;
   isActive: boolean;
   onSelect: (id: string, multi: boolean) => void;
   onNavigate: (folderId: string | null) => void;
@@ -92,6 +95,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
   files,
   currentPath,
   selectedItems,
+  focusedItemId,
   isActive,
   onSelect,
   onNavigate,
@@ -109,30 +113,15 @@ const FilePanel: React.FC<FilePanelProps> = ({
   const [terminalOwner, setTerminalOwner] = useState<string | null>(null);
   const terminalOpen = terminalOwner === identity;
   useEffect(() => { setTerminalOwner(null); }, [identity]);
-  const sortedFiles = [...files].sort((a, b) => {
-    // Folders first
-    if (a.type !== b.type) {
-      return a.type === 'folder' ? -1 : 1;
-    }
-    let comparison = 0;
-    switch (sortBy) {
-      case 'name':
-        comparison = a.name.localeCompare(b.name);
-        break;
-      case 'size':
-        comparison = a.size - b.size;
-        break;
-      case 'date':
-        comparison = new Date(a.modified).getTime() - new Date(b.modified).getTime();
-        break;
-      case 'ext':
-        comparison = (a.extension || '').localeCompare(b.extension || '');
-        break;
-      default:
-        comparison = a.name.localeCompare(b.name);
-    }
-    return sortOrder === 'asc' ? comparison : -comparison;
-  });
+  const sortedFiles = useMemo(() => sortFiles(files, sortBy, sortOrder), [files, sortBy, sortOrder]);
+  const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isActive || !focusedItemId) return;
+    const row = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-file-row]') || [])
+      .find(element => element.dataset.fileRow === focusedItemId);
+    row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [focusedItemId, isActive, sortedFiles]);
 
   const SortIndicator: React.FC<{ column: string }> = ({ column }) => {
     if (sortBy !== column) return <span className="text-gray-600 ml-1">↕</span>;
@@ -149,6 +138,9 @@ const FilePanel: React.FC<FilePanelProps> = ({
 
   return (
     <div
+      ref={panelRef}
+      tabIndex={0}
+      aria-label={title}
       className={`flex flex-col h-full min-h-0 border ${
         isActive ? 'border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.1)]' : 'border-gray-700/50'
       } rounded-lg overflow-hidden bg-gray-900/80 backdrop-blur-sm`}
@@ -235,11 +227,14 @@ const FilePanel: React.FC<FilePanelProps> = ({
       </div>
 
       {/* File List */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
         {/* Parent directory link */}
-        {currentPath !== '/' && (
+        {!isRootPath(currentPath, mode) && (
           <div
-            className="grid grid-cols-[1fr_80px_140px_60px] px-3 py-1.5 hover:bg-gray-700/30 cursor-pointer items-center border-b border-gray-800/30"
+            data-file-row=".."
+            aria-current={focusedItemId === '..' ? 'true' : undefined}
+            className={`grid grid-cols-[1fr_80px_140px_60px] px-3 py-1.5 hover:bg-gray-700/30 cursor-pointer items-center border-b border-gray-800/30 ${focusedItemId === '..' ? 'bg-cyan-900/30 ring-1 ring-inset ring-cyan-400/70' : ''}`}
+            onClick={() => { panelRef.current?.focus({ preventScroll: true }); onSelect('..', false); }}
             onDoubleClick={() => onNavigate('..')}
           >
             <div className="flex items-center gap-2">
@@ -255,12 +250,14 @@ const FilePanel: React.FC<FilePanelProps> = ({
         {sortedFiles.map((item) => (
           <div
             key={item.id}
+            data-file-row={item.id}
+            aria-current={focusedItemId === item.id ? 'true' : undefined}
             className={`grid grid-cols-[1fr_80px_140px_60px] px-3 py-1.5 cursor-pointer items-center border-b border-gray-800/20 transition-all duration-100 ${
               selectedItems.includes(item.id)
                 ? 'bg-cyan-900/30 border-l-2 border-l-cyan-400'
                 : 'hover:bg-gray-700/20 border-l-2 border-l-transparent'
-            }`}
-            onClick={(e) => onSelect(item.id, e.ctrlKey || e.metaKey)}
+            } ${focusedItemId === item.id ? 'ring-1 ring-inset ring-cyan-400/70' : ''}`}
+            onClick={(e) => { panelRef.current?.focus({ preventScroll: true }); onSelect(item.id, e.ctrlKey || e.metaKey); }}
             onDoubleClick={() => {
               if (item.type === 'folder') {
                 onNavigate(item.id);

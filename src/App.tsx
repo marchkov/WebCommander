@@ -8,6 +8,8 @@ import FileEditor from './components/FileEditor';
 import SSHConnectModal from './components/SSHConnectModal';
 import { ApiError, api, ProviderDescriptor } from './api/client';
 import { FileItem, PanelState } from './types';
+import { getParentPath, isRootPath, joinPath } from './utils/paths';
+import { itemAction, moveCursor, selectItem } from './utils/navigation';
 
 type PanelSide = 'left' | 'right';
 
@@ -42,7 +44,7 @@ function App() {
     action?: (value: string) => void;
   }>({ isOpen: false, type: 'input', title: '' });
 
-  const [editor, setEditor] = useState<{ isOpen: boolean; filePath: string; sessionId?: string }>({
+  const [editor, setEditor] = useState<{ isOpen: boolean; filePath: string; sessionId?: string; readOnly?: boolean }>({
     isOpen: false,
     filePath: '',
   });
@@ -152,6 +154,7 @@ function App() {
           currentPath: data.path,
           files: data.files,
           selectedItems: [],
+          focusedItemId: undefined,
         });
       } else {
         // Local mode
@@ -161,6 +164,7 @@ function App() {
           currentPath: data.path,
           files: data.files,
           selectedItems: [],
+          focusedItemId: undefined,
         });
       }
     } catch (err) {
@@ -168,80 +172,32 @@ function App() {
     }
   };
 
-  const handleSelect = (id: string, multi: boolean) => {
-    const panel = getActivePanelState();
-    let newSelected: string[];
-    if (multi) {
-      if (panel.selectedItems.includes(id)) {
-        newSelected = panel.selectedItems.filter(s => s !== id);
-      } else {
-        newSelected = [...panel.selectedItems, id];
-      }
-    } else {
-      newSelected = [id];
-    }
-    setActivePanelState({ ...panel, selectedItems: newSelected });
+  const handleSelect = (id: string, multi: boolean, side: PanelSide = activePanel) => {
+    setActivePanel(side);
+    const update = side === 'left' ? setLeftPanel : setRightPanel;
+    update(panel => selectItem(panel, id, multi));
   };
 
-  const getParentPath = (currentPath: string): string => {
-    const normalized = currentPath.replace(/\\/g, '/').replace(/\/+$/, '');
-    if (!normalized || normalized === '/') return '/';
-
-    if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;
-    if (/^[A-Za-z]:\/$/.test(normalized)) return normalized;
-
-    const segments = normalized.split('/').filter(Boolean);
-    if (segments.length === 0) return '/';
-
-    if (segments.length === 1) {
-      return /^[A-Za-z]:/.test(normalized) ? `${segments[0]}/` : '/';
-    }
-
-    if (/^[A-Za-z]:/.test(normalized)) {
-      const drive = normalized.split('/')[0];
-      const parentSegments = segments.slice(1, -1);
-      return parentSegments.length === 0 ? `${drive}/` : `${drive}/${parentSegments.join('/')}`;
-    }
-
-    return segments.slice(0, -1).join('/');
-  };
-
-  const joinPath = (basePath: string, name: string): string => {
-    if (!basePath || basePath === '/') {
-      return name.startsWith('/') ? name : `/${name}`;
-    }
-
-    const normalizedBase = basePath.replace(/\\/g, '/').replace(/\/+$/, '');
-    const normalizedName = name.replace(/\\/g, '/').replace(/^\/+/, '');
-
-    if (!normalizedName) {
-      return normalizedBase;
-    }
-
-    if (/^[A-Za-z]:$/.test(normalizedBase)) {
-      return `${normalizedBase}/${normalizedName}`;
-    }
-
-    return `${normalizedBase}/${normalizedName}`;
-  };
-
-  const handleNavigate = async (folderId: string | null) => {
-    const panel = getActivePanelState();
+  const handleNavigate = async (folderId: string | null, side: PanelSide = activePanel) => {
+    const panel = side === 'left' ? leftPanel : rightPanel;
+    setActivePanel(side);
     
     if (folderId === '..') {
-      const parentPath = getParentPath(panel.currentPath);
-      await loadDirectory(parentPath, activePanel);
+      if (isRootPath(panel.currentPath, panel.mode)) return;
+      const parentPath = getParentPath(panel.currentPath, panel.mode);
+      await loadDirectory(parentPath, side);
     } else if (folderId === null) {
-      await loadDirectory(panel.mode === 'ssh' ? '~' : '/', activePanel);
+      await loadDirectory(panel.mode === 'ssh' ? '~' : '/', side);
     } else {
-      await loadDirectory(folderId, activePanel);
+      await loadDirectory(folderId, side);
     }
   };
 
-  const handleSort = (column: string) => {
-    const panel = getActivePanelState();
+  const handleSort = (column: string, side: PanelSide = activePanel) => {
+    const panel = side === 'left' ? leftPanel : rightPanel;
+    setActivePanel(side);
     const newOrder = panel.sortBy === column && panel.sortOrder === 'asc' ? 'desc' : 'asc';
-    setActivePanelState({
+    setPanelState(side, {
       ...panel,
       sortBy: column,
       sortOrder: newOrder,
@@ -355,7 +311,7 @@ function App() {
         const request = {
           operation,
           source: getProviderDescriptor(panel, item.id),
-          destination: getProviderDescriptor(targetPanel, joinPath(targetPanel.currentPath, item.name)),
+          destination: getProviderDescriptor(targetPanel, joinPath(targetPanel.currentPath, item.name, targetPanel.mode)),
         } as const;
 
         try {
@@ -456,7 +412,7 @@ function App() {
           const panel = getActivePanelState();
           
           if (panel.mode === 'ssh' && panel.sshSessionId) {
-            const newPath = joinPath(panel.currentPath, name);
+            const newPath = joinPath(panel.currentPath, name, panel.mode);
             await api.sshMkdir(panel.sshSessionId, newPath);
           } else {
             await api.mkdir(panel.currentPath, name);
@@ -479,15 +435,16 @@ function App() {
     showToast('Refreshed', 'info');
   };
 
-  const handleFileDoubleClick = (fileId: string) => {
-    const panel = getActivePanelState();
+  const handleFileOpen = (fileId: string, readOnly = false, side: PanelSide = activePanel) => {
+    const panel = side === 'left' ? leftPanel : rightPanel;
     const file = panel.files.find(f => f.id === fileId);
     
     if (file?.type === 'file') {
       if (panel.mode === 'ssh' && panel.sshSessionId) {
-        setEditor({ isOpen: true, filePath: file.id, sessionId: panel.sshSessionId });
+        setEditor({ isOpen: true, filePath: file.id, sessionId: panel.sshSessionId, readOnly });
       } else {
-        setEditor({ isOpen: true, filePath: file.id });
+        if (panel.mode === 'ssh') return;
+        setEditor({ isOpen: true, filePath: file.id, readOnly });
       }
     }
   };
@@ -544,7 +501,7 @@ function App() {
           await api.createArchive(
             provider,
             sources,
-            joinPath(panel.currentPath, normalizedName),
+            joinPath(panel.currentPath, normalizedName, panel.mode),
             panel.sshSessionId,
           );
           await loadDirectory(panel.currentPath, activePanel, panel);
@@ -593,10 +550,32 @@ function App() {
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.target instanceof Element && e.target.closest('[data-terminal-drawer]')) return;
+    if (!authenticated || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-terminal-drawer]')) return;
     if (modal.isOpen || editor.isOpen || sshModal.isOpen) return;
+    const panel = getActivePanelState();
     
     switch (e.key) {
+      case 'ArrowDown':
+      case 'ArrowUp': {
+        e.preventDefault();
+        const update = activePanel === 'left' ? setLeftPanel : setRightPanel;
+        update(state => moveCursor(state, e.key === 'ArrowDown' ? 1 : -1));
+        break;
+      }
+      case 'Backspace':
+        e.preventDefault();
+        handleNavigate('..');
+        break;
+      case 'Enter':
+      case 'F3':
+      case 'F4': {
+        e.preventDefault();
+        const action = itemAction(panel, e.key);
+        if (action?.type === 'navigate') handleNavigate(action.path);
+        else if (action?.type === 'open') handleFileOpen(action.path, action.readOnly);
+        break;
+      }
       case 'F5':
         e.preventDefault();
         handleCopy();
@@ -618,7 +597,7 @@ function App() {
         setActivePanel(prev => prev === 'left' ? 'right' : 'left');
         break;
     }
-  }, [activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
+  }, [authenticated, activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -661,14 +640,15 @@ function App() {
             files={leftPanel.files}
             currentPath={leftPanel.currentPath}
             selectedItems={leftPanel.selectedItems}
+            focusedItemId={leftPanel.focusedItemId}
             isActive={activePanel === 'left'}
-            onSelect={handleSelect}
-            onNavigate={handleNavigate}
+            onSelect={(id, multi) => handleSelect(id, multi, 'left')}
+            onNavigate={id => handleNavigate(id, 'left')}
             onPanelClick={() => setActivePanel('left')}
             sortBy={leftPanel.sortBy}
             sortOrder={leftPanel.sortOrder}
-            onSort={handleSort}
-            onDoubleClick={handleFileDoubleClick}
+            onSort={column => handleSort(column, 'left')}
+            onDoubleClick={id => handleFileOpen(id, false, 'left')}
             mode={leftPanel.mode}
             sshHost={leftPanel.sshHost}
             sshSessionId={leftPanel.sshSessionId}
@@ -681,14 +661,15 @@ function App() {
             files={rightPanel.files}
             currentPath={rightPanel.currentPath}
             selectedItems={rightPanel.selectedItems}
+            focusedItemId={rightPanel.focusedItemId}
             isActive={activePanel === 'right'}
-            onSelect={handleSelect}
-            onNavigate={handleNavigate}
+            onSelect={(id, multi) => handleSelect(id, multi, 'right')}
+            onNavigate={id => handleNavigate(id, 'right')}
             onPanelClick={() => setActivePanel('right')}
             sortBy={rightPanel.sortBy}
             sortOrder={rightPanel.sortOrder}
-            onSort={handleSort}
-            onDoubleClick={handleFileDoubleClick}
+            onSort={column => handleSort(column, 'right')}
+            onDoubleClick={id => handleFileOpen(id, false, 'right')}
             mode={rightPanel.mode}
             sshHost={rightPanel.sshHost}
             sshSessionId={rightPanel.sshSessionId}
@@ -729,6 +710,7 @@ function App() {
         <FileEditor
           filePath={editor.filePath}
           sessionId={editor.sessionId}
+          readOnly={editor.readOnly}
           onClose={() => setEditor({ isOpen: false, filePath: '' })}
           onSave={() => loadDirectory(getActivePanelState().currentPath, activePanel)}
         />

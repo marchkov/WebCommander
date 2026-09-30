@@ -4,11 +4,12 @@ import { api } from '../api/client';
 interface FileEditorProps {
   filePath: string;
   sessionId?: string;
+  readOnly?: boolean;
   onClose: () => void;
   onSave: () => void;
 }
 
-const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, onSave }) => {
+const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, readOnly = false, onClose, onSave }) => {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -17,10 +18,11 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
 
   useEffect(() => {
     loadFile();
-  }, [filePath]);
+  }, [filePath, sessionId]);
 
   const loadFile = async () => {
     setLoading(true);
+    setError('');
     try {
       let result;
       if (sessionId) {
@@ -38,6 +40,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
   };
 
   const handleSave = async () => {
+    if (readOnly || saving || loading) return;
     setSaving(true);
     try {
       if (sessionId) {
@@ -76,7 +79,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950" onKeyDown={handleKeyDown}>
       {/* Editor Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700">
         <div className="flex items-center gap-3">
@@ -89,14 +92,15 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
             {sessionId && <span className="text-green-400 mr-2">[SSH]</span>}
             {filePath}
           </span>
-          {modified && (
+          {readOnly && <span className="text-xs text-cyan-400">View · Read only</span>}
+          {modified && !readOnly && (
             <span className="text-xs text-yellow-400 bg-yellow-900/20 px-2 py-0.5 rounded">
               Modified
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          {!readOnly && <button
             onClick={handleSave}
             disabled={saving || !modified}
             className="px-3 py-1.5 text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -109,7 +113,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
                 Save
               </>
             )}
-          </button>
+          </button>}
           <button
             onClick={onClose}
             className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-all"
@@ -131,12 +135,15 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
       {/* Editor */}
       <div className="flex-1 overflow-hidden">
         <textarea
+          autoFocus
+          readOnly={readOnly}
+          aria-label={readOnly ? 'File viewer' : 'File editor'}
           value={content}
           onChange={(e) => {
+            if (readOnly) return;
             setContent(e.target.value);
             setModified(true);
           }}
-          onKeyDown={handleKeyDown}
           className="w-full h-full p-4 bg-gray-950 text-gray-100 font-mono text-sm resize-none focus:outline-none custom-scrollbar"
           spellCheck={false}
         />
@@ -144,7 +151,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ filePath, sessionId, onClose, o
 
       {/* Status Bar */}
       <div className="px-4 py-1.5 bg-gray-900 border-t border-gray-700 flex items-center justify-between text-xs text-gray-500">
-        <span>Ctrl+S to save • Esc to close</span>
+        <span>{readOnly ? 'Read only • Esc to close' : 'Ctrl+S to save • Esc to close'}</span>
         <span>{content.length} characters • {content.split('\n').length} lines</span>
       </div>
     </div>
