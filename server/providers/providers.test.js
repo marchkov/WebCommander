@@ -22,6 +22,32 @@ async function createTestProvider() {
   return { rootPath, provider };
 }
 
+test('local rename preserves existing destinations and treats same path as a no-op', async () => {
+  const { rootPath, provider } = await createTestProvider();
+  const source = path.join(rootPath, 'source.txt');
+  const destination = path.join(rootPath, 'destination.txt');
+  const directory = path.join(rootPath, 'directory');
+  await fs.promises.writeFile(source, 'source bytes');
+  await fs.promises.writeFile(destination, 'destination bytes');
+  await fs.promises.mkdir(directory);
+  for (const target of [destination, directory]) {
+    await assert.rejects(provider.rename(source, target), { status: 409, code: 'DESTINATION_EXISTS' });
+    assert.equal(await fs.promises.readFile(source, 'utf8'), 'source bytes');
+  }
+  assert.equal(await fs.promises.readFile(destination, 'utf8'), 'destination bytes');
+  await provider.rename(source, source);
+  await provider.rename(directory, directory);
+  assert.equal(await fs.promises.readFile(source, 'utf8'), 'source bytes');
+  await assert.rejects(provider.rename(directory, destination), { status: 409, code: 'DESTINATION_EXISTS' });
+  const otherDirectory = path.join(rootPath, 'other-directory');
+  await fs.promises.mkdir(otherDirectory);
+  await assert.rejects(provider.rename(directory, otherDirectory), { status: 409, code: 'DESTINATION_EXISTS' });
+  await provider.rename(source, path.join(rootPath, 'renamed.txt'));
+  await provider.rename(directory, path.join(rootPath, 'renamed-directory'));
+  assert.equal(await fs.promises.readFile(path.join(rootPath, 'renamed.txt'), 'utf8'), 'source bytes');
+  assert.equal((await fs.promises.stat(path.join(rootPath, 'renamed-directory'))).isDirectory(), true);
+});
+
 test.afterEach(async () => {
   for (const entry of await fs.promises.readdir(os.tmpdir())) {
     if (entry.startsWith('webcommander-provider-')) {

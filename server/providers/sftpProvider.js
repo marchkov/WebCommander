@@ -171,6 +171,14 @@ class SftpProvider extends FileProvider {
     const oldPath = this.resolvePathAfterInitialization(oldRemotePath);
     const newPath = this.resolvePathAfterInitialization(newRemotePath);
     const sftp = this.sftp;
+    if (oldPath === newPath) return;
+    try {
+      await this.call(sftp, 'lstat', newPath);
+      throw Object.assign(new Error('Destination already exists'), { status: 409, code: 'DESTINATION_EXISTS' });
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'SSH_FX_NO_SUCH_FILE' && error.code !== 2) throw error;
+    }
+    // SFTP servers do not consistently support atomic no-replace rename.
     await this.call(sftp, 'rename', oldPath, newPath);
   }
 

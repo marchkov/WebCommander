@@ -537,6 +537,9 @@ app.post('/api/files/rename', requireAuth, async (req, res) => {
 
     res.json({ success: true, newPath: localProvider.resolvePath(newPath) });
   } catch (error) {
+    if (error.status === 409) {
+      return res.status(409).json({ error: error.message, code: error.code });
+    }
     if (error.statusCode === 403) {
       return res.status(403).json({ error: error.message });
     }

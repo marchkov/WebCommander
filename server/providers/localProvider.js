@@ -105,6 +105,15 @@ class LocalProvider extends FileProvider {
       ? (await this.validateLinkEntry(lexicalOldPath)).path
       : (await this.validateExistingPath(oldPath)).path;
     const resolvedNewPath = await this.validateDestinationPath(newPath);
+    if (resolvedOldPath === resolvedNewPath) return;
+    try {
+      await fs.promises.lstat(resolvedNewPath);
+      throw Object.assign(new Error('Destination already exists'), { status: 409, code: 'DESTINATION_EXISTS' });
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    // Node has no portable atomic no-replace rename for files and directories.
+    // An external writer can still create the destination between lstat and rename.
     await fs.promises.rename(resolvedOldPath, resolvedNewPath);
   }
 

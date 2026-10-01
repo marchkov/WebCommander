@@ -429,3 +429,21 @@ test('properties dialog renders required metadata, including zero-valued owner I
   for (const text of ['file.txt', '/repo/file.txt', '12 bytes', 'Modified', 'Permissions', '644', 'Owner UID', 'Group GID']) assert.ok(html.includes(text));
   assert.match(html, /<dd[^>]*>0<\/dd>/);
 });
+
+test('Shift+F6 displays provider conflicts and keeps the rename modal open without overwrite confirmation', async () => {
+  const original = global.Element; global.Element = class {};
+  try {
+    for (const mode of ['local', 'ssh']) {
+      const conflict = Object.assign(new Error('Destination already exists'), { status: 409, code: 'DESTINATION_EXISTS' });
+      const fail = async () => { throw conflict; };
+      const app = appFixture(panel({ mode, sshSessionId: 'existing', focusedItemId: 'a.md' }), { rename: fail, sshRename: fail });
+      app.press('F6', { shiftKey: true });
+      const modal = app.changes.find(([index]) => index === 7)[1];
+      assert.equal(modal.defaultValue, 'a.md');
+      await modal.action('existing.txt');
+      assert.deepEqual(app.changes.find(([index]) => index === 11)[1], { message: 'Destination already exists', type: 'error' });
+      assert.equal(app.changes.filter(([index]) => index === 7).length, 1);
+      assert.equal(app.changes.some(([index]) => index === 5 || index === 8), false);
+    }
+  } finally { global.Element = original; }
+});

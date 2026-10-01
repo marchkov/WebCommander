@@ -46,6 +46,10 @@ class FakeSftp {
     fs.stat(this.localPath(remotePath), (error, stats) => callback(error, error ? undefined : this.attrs(stats)));
   }
 
+  lstat(remotePath, callback) {
+    fs.lstat(this.localPath(remotePath), (error, stats) => callback(error, error ? undefined : this.attrs(stats)));
+  }
+
   mkdir(remotePath, callback) {
     fs.mkdir(this.localPath(remotePath), callback);
   }
@@ -205,4 +209,41 @@ test('SftpProvider exposes Node read and write streams', async () => {
   await finished(readStream);
   assert.equal(Buffer.concat(chunks).toString(), 'streamed');
   assert.equal(await fs.promises.readFile(path.join(rootPath, 'stream.txt'), 'utf8'), 'streamed');
+});
+
+test('SFTP rename preserves existing destinations and treats same path as a no-op', async () => {
+  const { rootPath, provider } = await createFixture();
+  await fs.promises.writeFile(path.join(rootPath, 'source.txt'), 'source bytes');
+  await fs.promises.writeFile(path.join(rootPath, 'destination.txt'), 'destination bytes');
+  await fs.promises.mkdir(path.join(rootPath, 'directory'));
+  for (const target of ['destination.txt', 'directory']) {
+    await assert.rejects(provider.rename('/home/test/source.txt', `/home/test/${target}`), { status: 409, code: 'DESTINATION_EXISTS' });
+    assert.equal(await fs.promises.readFile(path.join(rootPath, 'source.txt'), 'utf8'), 'source bytes');
+  }
+  assert.equal(await fs.promises.readFile(path.join(rootPath, 'destination.txt'), 'utf8'), 'destination bytes');
+  await provider.rename('/home/test/source.txt', '/home/test/source.txt');
+  await provider.rename('/home/test/directory', '/home/test/directory');
+  assert.equal(await fs.promises.readFile(path.join(rootPath, 'source.txt'), 'utf8'), 'source bytes');
+  await assert.rejects(provider.rename('/home/test/directory', '/home/test/destination.txt'), { status: 409, code: 'DESTINATION_EXISTS' });
+  await fs.promises.mkdir(path.join(rootPath, 'other-directory'));
+  await assert.rejects(provider.rename('/home/test/directory', '/home/test/other-directory'), { status: 409, code: 'DESTINATION_EXISTS' });
+  await provider.rename('/home/test/source.txt', '/home/test/renamed.txt');
+  await provider.rename('/home/test/directory', '/home/test/renamed-directory');
+  assert.equal(await fs.promises.readFile(path.join(rootPath, 'renamed.txt'), 'utf8'), 'source bytes');
+  assert.equal((await fs.promises.stat(path.join(rootPath, 'renamed-directory'))).isDirectory(), true);
+});
+
+test('SFTP rename accepts missing-path error codes but does not ignore other lstat errors', async () => {
+  for (const code of [2, 'SSH_FX_NO_SUCH_FILE', 'ENOENT', 3]) {
+    let renames = 0;
+    const sftp = {
+      realpath(_path, callback) { callback(null, '/home/test'); },
+      lstat(_path, callback) { callback(Object.assign(new Error('SFTP lstat failed'), { code })); },
+      rename(_old, _new, callback) { renames++; callback(null); },
+    };
+    const provider = new SftpProvider({ sessionId: 'test', sshManager: { getSftp: async () => sftp } });
+    const rename = provider.rename('/home/test/source', '/home/test/free');
+    if (code === 3) { await assert.rejects(rename, { code: 3 }); assert.equal(renames, 0); }
+    else { await rename; assert.equal(renames, 1); }
+  }
 });

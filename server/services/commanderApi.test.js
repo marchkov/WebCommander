@@ -95,6 +95,22 @@ test('Commander file APIs create exclusively, rename files and directories, and 
     assert.deepEqual(races.map(response => response.status).sort(), [200, 409]);
     await fs.promises.mkdir(path.join(disk, 'folder'));
     assert.equal((await create('folder')).status, 409);
+    const renameTo = (from, to) => provider === 'local'
+      ? post('/files/rename', { path: path.join(root, from), newName: to })
+      : post('/ssh/files/rename', { sessionId: 'remote', path: '/home/test/' + from, newPath: '/home/test/' + to });
+    for (const from of ['new.txt', 'folder']) {
+      assert.equal((await renameTo(from, from)).status, 200);
+      for (const to of [from === 'new.txt' ? 'race.txt' : 'new.txt', from === 'folder' ? 'remote' : 'folder']) {
+        // Both adapters have an existing directory destination.
+        if (to === 'remote' && provider === 'sftp') await fs.promises.mkdir(path.join(disk, 'remote'));
+        const response = await renameTo(from, to);
+        assert.equal(response.status, 409);
+        assert.deepEqual(await response.json(), { error: 'Destination already exists', code: 'DESTINATION_EXISTS' });
+      }
+    }
+    assert.equal(await fs.promises.readFile(path.join(disk, 'new.txt'), 'utf8'), 'preserve existing bytes');
+    assert.equal(await fs.promises.readFile(path.join(disk, 'race.txt'), 'utf8'), '');
+    assert.equal((await fs.promises.stat(path.join(disk, 'folder'))).isDirectory(), true);
     for (const [name, type] of [['new.txt', 'file'], ['folder', 'folder']]) {
       const original = provider === 'local' ? path.join(root, name) : '/home/test/' + name;
       const destination = provider === 'local' ? path.join(root, 'renamed-' + name) : '/home/test/renamed-' + name;
