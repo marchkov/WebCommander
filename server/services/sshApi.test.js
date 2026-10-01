@@ -82,8 +82,7 @@ test('SSH HTTP sessions survive rediscovery and enforce browser ownership across
   }
   for (const [route, body] of [
     ['/ssh/disconnect', {}], ['/ssh/files/write', { content: 'x' }], ['/ssh/files/mkdir', {}],
-    ['/ssh/files/delete', {}], ['/ssh/files/rename', { newPath: '/new' }], ['/ssh/files/upload', {}],
-    ['/ssh/exec', { command: 'no' }], ['/ssh/transfer', { sourcePath: '/a', destPath: '/b', direction: 'upload' }],
+    ['/ssh/files/delete', {}], ['/ssh/files/rename', { newPath: '/new' }],
     ['/archives/create', { provider: 'sftp', sources: ['/file'], destination: '/a.zip' }],
     ['/archives/extract', { provider: 'sftp', archive: '/a.zip', destination: '/out' }],
     ['/files/create', { provider: 'sftp', directory: '/home', name: 'new.txt' }],
@@ -94,6 +93,16 @@ test('SSH HTTP sessions survive rediscovery and enforce browser ownership across
     assert.equal(response.status, 404, route);
     assert.equal((await response.json()).code, 'SSH_SESSION_NOT_FOUND');
   }
+  for (const route of ['/ssh/exec', '/ssh/transfer', '/ssh/files/upload']) {
+    assert.equal((await post(route, {})).status, 404, route);
+  }
+  const multipart = new FormData();
+  multipart.append('file', new Blob(['bytes']), 'new.txt');
+  multipart.append('provider', 'sftp');
+  multipart.append('sessionId', 'owned');
+  const upload = await fetch(base + '/files/upload', { method: 'POST', headers: { Cookie: cookie }, body: multipart });
+  assert.equal(upload.status, 404);
+  assert.equal((await upload.json()).code, 'SSH_SESSION_NOT_FOUND');
   cookie = ownerCookie;
   assert.equal((await (await get('/ssh/sessions')).json()).length, 1);
   assert.equal((await post('/ssh/disconnect', { sessionId: 'owned' })).status, 200);

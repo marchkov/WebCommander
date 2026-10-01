@@ -314,29 +314,6 @@ class SSHManager {
     });
   }
 
-  // Загрузка файла из буфера
-  static async uploadFile(sessionId, filePath, buffer) {
-    const session = this.getConnection(sessionId);
-    
-    return new Promise((resolve, reject) => {
-      session.conn.sftp((err, sftp) => {
-        if (err) return reject(err);
-        
-        const stream = sftp.createWriteStream(filePath);
-        
-        stream.on('close', () => {
-          resolve({ success: true });
-        });
-        
-        stream.on('error', (err) => {
-          reject(err);
-        });
-        
-        stream.end(buffer);
-      });
-    });
-  }
-
   // Информация о файле
   static async stat(sessionId, filePath) {
     const session = this.getConnection(sessionId);
@@ -361,57 +338,6 @@ class SSHManager {
             gid: stats.gid,
           });
         });
-      });
-    });
-  }
-
-  // Выполнение команды
-  static async exec(sessionId, command) {
-    const session = this.getConnection(sessionId);
-    
-    return new Promise((resolve, reject) => {
-      session.conn.exec(command, (err, stream) => {
-        if (err) return reject(err);
-        
-        let stdout = '';
-        let stderr = '';
-        
-        stream.on('data', (data) => {
-          stdout += data.toString();
-        });
-        
-        stream.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-        
-        stream.on('close', (code) => {
-          resolve({ stdout, stderr, code });
-        });
-      });
-    });
-  }
-
-  // Копирование файла между локальным и SSH (или наоборот)
-  static async transferFile(sessionId, sourcePath, destPath, direction) {
-    const session = this.getConnection(sessionId);
-    
-    return new Promise((resolve, reject) => {
-      session.conn.sftp((err, sftp) => {
-        if (err) return reject(err);
-        
-        if (direction === 'upload') {
-          // Локальный -> SSH
-          sftp.fastPut(sourcePath, destPath, (err) => {
-            if (err) return reject(err);
-            resolve({ success: true });
-          });
-        } else {
-          // SSH -> Локальный
-          sftp.fastGet(sourcePath, destPath, (err) => {
-            if (err) return reject(err);
-            resolve({ success: true });
-          });
-        }
       });
     });
   }

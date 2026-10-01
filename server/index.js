@@ -3,8 +3,9 @@ const http = require('http');
 const session = require('express-session');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
+const requestSecurity = require('./requestSecurity');
+const registerUploadRoutes = require('./uploadRoutes');
+const { validateFilename, createExclusiveFile } = require('./fileSecurity');
 const mime = require('mime-types');
 const archiver = require('archiver');
 const SSHManager = require('./sshManager');
@@ -49,13 +50,14 @@ const parseEnvInt = (value, fallback) => {
 
 const defaultRootPath = process.env.WC_ROOT_PATH || rawConfig.rootPath || path.resolve(__dirname, '..');
 const config = {
+  host: process.env.WC_HOST || rawConfig.host,
   port: parseEnvInt(process.env.WC_PORT, rawConfig.port || 3001),
   rootPath: process.env.WC_ROOT_PATH || rawConfig.rootPath || defaultRootPath,
   auth: resolveAuthConfig(rawConfig),
   security: {
     allowedPaths: parseEnvList(process.env.WC_ALLOWED_PATHS, rawConfig.security?.allowedPaths || [defaultRootPath]),
     blockedPaths: parseEnvList(process.env.WC_BLOCKED_PATHS, rawConfig.security?.blockedPaths || []),
-    maxFileSize: parseEnvInt(process.env.WC_MAX_FILE_SIZE, rawConfig.security?.maxFileSize || 104857600),
+    maxFileSize: Number(process.env.WC_MAX_FILE_SIZE ?? rawConfig.security?.maxFileSize ?? 104857600),
     allowedExtensions: parseEnvList(process.env.WC_ALLOWED_EXTENSIONS, rawConfig.security?.allowedExtensions || ['*'])
   }
 };
@@ -106,13 +108,14 @@ if (config.auth.corsOrigins.length) {
     credentials: true,
   }));
 }
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // One session middleware instance serves HTTP and terminal WebSocket upgrades.
 const { cookieOptions, options: sessionOptions } = sessionSettings(config.auth);
 const sessionMiddleware = session(sessionOptions);
 app.use(sessionMiddleware);
+app.use('/api', requestSecurity({ authEnabled: config.auth.enabled, corsOrigins: config.auth.corsOrigins }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Auth middleware
 const requireAuth = (req, res, next) => {
@@ -134,34 +137,6 @@ const validateServerPath = (targetPath) => {
     blockedPaths: config.security.blockedPaths,
   });
 };
-
-// Multer configuration for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const destPath = req.body.path || config.rootPath;
-    const validation = validateServerPath(destPath);
-    
-    if (!validation.valid) {
-      return cb(new Error(validation.error));
-    }
-    
-    if (!fs.existsSync(validation.path)) {
-      fs.mkdirSync(validation.path, { recursive: true });
-    }
-    
-    cb(null, validation.path);
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: config.security.maxFileSize
-  }
-});
 
 // ============ AUTH ROUTES ============
 
@@ -426,29 +401,19 @@ app.post('/api/archives/extract', requireAuth, async (req, res) => {
   }
 });
 
-// Create an empty file without replacing any existing entry.
+// Create an empty file using the same policy as uploads.
 app.post('/api/files/create', requireAuth, async (req, res) => {
   const { provider: providerType, sessionId, directory, name } = req.body;
   if (!['local', 'sftp'].includes(providerType) || typeof directory !== 'string' || !directory.trim() ||
-      typeof name !== 'string' || !name.trim() || name === '.' || name === '..' || /[\\/:<>"|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) ||
       (providerType === 'sftp' && (typeof sessionId !== 'string' || !sessionId.trim()))) {
-    return res.status(400).json({ error: 'provider, directory and a valid file name are required' });
+    return res.status(400).json({ error: 'provider, directory and name are required' });
   }
   try {
     const provider = await createProvider(providerType, sessionId, req);
-    const parent = await provider.stat(directory);
-    if (parent.type !== 'folder') return res.status(400).json({ error: 'Destination must be a directory' });
-    const destination = provider.joinPath(parent.path, name);
-    try {
-      await provider.lstat(destination);
-      return res.status(409).json({ error: 'Destination already exists' });
-    } catch (error) {
-      if (error.code !== 'ENOENT' && error.code !== 'SSH_FX_NO_SUCH_FILE' && error.code !== 2) throw error;
-    }
-    await provider.write(destination, '', { exclusive: true });
+    const destination = await createExclusiveFile({ provider, directory, name, data: '',
+      allowedExtensions: config.security.allowedExtensions });
     res.json({ success: true, path: destination });
   } catch (error) {
-    if (error.code === 'EEXIST') return res.status(409).json({ error: 'Destination already exists' });
     res.status(error.statusCode || error.status || 500).json({ error: error.message, code: error.code });
   }
 });
@@ -458,6 +423,7 @@ app.post('/api/files/rename', requireAuth, async (req, res) => {
   const { path: targetPath, newName } = req.body;
 
   try {
+    validateFilename(newName);
     const currentPath = localProvider.resolvePath(targetPath);
     const dir = path.dirname(currentPath);
     const newPath = path.join(dir, newName);
@@ -482,23 +448,11 @@ app.post('/api/files/rename', requireAuth, async (req, res) => {
     if (error.code === 'ENOENT') {
       return res.status(404).json({ error: 'Path not found' });
     }
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
-// Upload file
-app.post('/api/files/upload', requireAuth, upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-  
-  res.json({
-    success: true,
-    filename: req.file.originalname,
-    path: req.file.path,
-    size: req.file.size
-  });
-});
+registerUploadRoutes(app, { requireAuth, createProvider, security: config.security, rootPath: config.rootPath });
 
 // Download file
 app.get('/api/files/download', requireAuth, async (req, res) => {
@@ -510,7 +464,7 @@ app.get('/api/files/download', requireAuth, async (req, res) => {
     if (info.type === 'folder') {
       // Create zip archive for directory
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(info.path)}.zip"`);
+      res.attachment(path.basename(info.path) + '.zip');
       
       const archive = new archiver.ZipArchive({ zlib: { level: 9 } });
       archive.pipe(res);
@@ -519,7 +473,7 @@ app.get('/api/files/download', requireAuth, async (req, res) => {
     } else {
       const mimeType = mime.lookup(info.path) || 'application/octet-stream';
       res.setHeader('Content-Type', mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(info.path)}"`);
+      res.attachment(path.basename(info.path));
       localProvider.createReadStream(info.path).pipe(res);
     }
   } catch (error) {
@@ -674,7 +628,12 @@ app.post('/api/ssh/files/rename', requireAuth, async (req, res) => {
   const { sessionId, path: oldPath, newPath } = req.body;
 
   try {
-    await (await initializeSftpProvider(sessionId, req)).rename(oldPath, newPath);
+    const provider = await initializeSftpProvider(sessionId, req);
+    validateFilename(typeof newPath === 'string' ? path.posix.basename(newPath) : newPath);
+    if (newPath.includes('\\') || newPath.split('/').some(part => part === '..' || part === '.')) {
+      return res.status(400).json({ error: 'Invalid rename path', code: 'INVALID_FILENAME' });
+    }
+    await provider.rename(oldPath, newPath);
     res.json({ success: true });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message, code: error.code });
@@ -692,7 +651,7 @@ app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
     const mimeType = mime.lookup(info.path) || 'application/octet-stream';
     
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.attachment(fileName);
     res.setHeader('Content-Length', info.size);
     provider.createReadStream(info.path).pipe(res);
   } catch (error) {
@@ -700,30 +659,7 @@ app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
   }
 });
 
-// Загрузка файла через SSH
-app.post('/api/ssh/files/upload', requireAuth, async (req, res) => {
-  const { sessionId, path: filePath } = req.body;
-  
-  try {
-    // Получаем буфер из запроса
-    SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', async () => {
-      const buffer = Buffer.concat(chunks);
-      
-      try {
-        SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
-        await SSHManager.uploadFile(sessionId, filePath, buffer);
-        res.json({ success: true });
-      } catch (error) {
-        res.status(error.status || 500).json({ error: error.message, code: error.code });
-      }
-    });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message, code: error.code });
-  }
-});
+
 
 // Информация о файле через SSH
 app.get('/api/ssh/files/info', requireAuth, async (req, res) => {
@@ -737,34 +673,12 @@ app.get('/api/ssh/files/info', requireAuth, async (req, res) => {
   }
 });
 
-// Трансфер между локальным и SSH
-app.post('/api/ssh/transfer', requireAuth, async (req, res) => {
-  const { sessionId, sourcePath, destPath, direction } = req.body;
-  
-  try {
-    SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
-    await SSHManager.transferFile(sessionId, sourcePath, destPath, direction);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message, code: error.code });
-  }
-});
 
-// Выполнение команды через SSH
-app.post('/api/ssh/exec', requireAuth, async (req, res) => {
-  const { sessionId, command } = req.body;
-  
-  try {
-    SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
-    const result = await SSHManager.exec(sessionId, command);
-    res.json(result);
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message, code: error.code });
-  }
-});
+
+
 
 // Serve static files in production
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === 'production' || process.env.WC_SERVE_STATIC === 'true') {
   app.use(express.static(path.join(__dirname, '../dist')));
   
   app.get('/{*splat}', (req, res) => {
@@ -787,7 +701,7 @@ const shutdown = () => {
 };
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
-server.listen(PORT, () => {
+server.listen({ port: PORT, ...(config.host ? { host: config.host } : {}) }, () => {
   console.log(`WebCommander server running on port ${PORT}`);
   console.log(`Root path: ${config.rootPath}`);
   console.log(`Auth enabled: ${config.auth.enabled}`);

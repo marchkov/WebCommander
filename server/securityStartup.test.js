@@ -85,3 +85,13 @@ test('CORS credentials are sent only for exact approved origins, including prefl
     assert.equal(preflight.headers.get('access-control-allow-credentials'), approved ? 'true' : null);
   }
 });
+
+test('local development launcher can serve built frontend on loopback without production bypass', async t => {
+  const f = await fixture(t, { NODE_ENV: 'development', WC_HOST: '127.0.0.1', WC_SERVE_STATIC: 'true',
+    WC_AUTH_USERS: JSON.stringify([{ username: 'admin', password: 'admin123' }]),
+    WC_SESSION_SECRET: 'change-this-secret-key-in-production', WC_ALLOW_MEMORY_SESSION_STORE: 'false' });
+  const response = await fetch(f.base.replace(/\/api$/, '/'));
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /<!doctype html>/i);
+  assert.match(f.output(), /not allowed in production/);
+});

@@ -151,9 +151,9 @@ class SftpProvider extends FileProvider {
     await this.initialize();
     const resolvedPath = this.resolvePathAfterInitialization(remotePath);
     const sftp = this.sftp;
-    const attrs = await this.call(sftp, 'stat', resolvedPath);
+    const attrs = await this.call(sftp, 'lstat', resolvedPath);
 
-    if (!this.isDirectory(attrs)) {
+    if (this.isSymbolicLink(attrs) || !this.isDirectory(attrs)) {
       await this.call(sftp, 'unlink', resolvedPath);
       return;
     }
@@ -226,7 +226,8 @@ class SftpProvider extends FileProvider {
 
     for (const entry of entries) {
       const entryPath = path.posix.join(directoryPath, entry.filename);
-      if (this.isDirectory(entry.attrs)) {
+      const attrs = await this.call(sftp, 'lstat', entryPath);
+      if (!this.isSymbolicLink(attrs) && this.isDirectory(attrs)) {
         await this.deleteDirectory(sftp, entryPath);
       } else {
         await this.call(sftp, 'unlink', entryPath);
@@ -255,6 +256,11 @@ class SftpProvider extends FileProvider {
       : path.posix.join(this.rootPath, normalizeRemotePath(requestedPath).slice(1));
   }
 
+  isSymbolicLink(attrs) {
+    return typeof attrs.isSymbolicLink === 'function'
+      ? attrs.isSymbolicLink() : (attrs.mode & 0o170000) === 0o120000;
+  }
+
   isDirectory(attrs) {
     return typeof attrs.isDirectory === 'function'
       ? attrs.isDirectory()
@@ -271,6 +277,7 @@ class SftpProvider extends FileProvider {
       path: entryPath,
       name,
       type: isFolder ? 'folder' : 'file',
+      isSymlink: this.isSymbolicLink(attrs),
       size: attrs.size || 0,
       modified,
       extension: isFolder ? undefined : path.posix.extname(name).slice(1),

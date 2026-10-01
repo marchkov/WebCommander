@@ -47,7 +47,7 @@ up the shell; heartbeat checks detect lost connections.
 Local shells use node-pty (PowerShell preferred on Windows, `$SHELL`/bash/sh on
 Unix). LocalProvider validates the initial cwd, including symbolic links. This
 is **not a filesystem sandbox**: commands run with the server account's rights.
-SSH uses a PTY channel on the existing connection; `/api/ssh/exec` is unchanged.
+SSH uses a PTY channel on the existing connection.
 The Windows cleanup adapter includes a guarded workaround for node-pty 1.1's
 ConPTY cleanup; recheck it when upgrading node-pty.
 
@@ -128,7 +128,14 @@ Important variables:
 - `WC_COOKIE_SECURE`, `WC_TRUST_PROXY`, `WC_SESSION_COOKIE_NAME` - HTTPS/proxy cookie settings
 - `WC_ALLOW_MEMORY_SESSION_STORE` - explicit production opt-in for a single instance
 - `WC_CORS_ORIGINS` - comma-separated exact origins; empty means same-origin
-- `WC_MAX_FILE_SIZE` - upload size limit in bytes
+- `WC_MAX_FILE_SIZE` - positive integer upload size limit in bytes, enforced for Local and SFTP (default 100 MiB)
+- `WC_ALLOWED_EXTENSIONS` - comma-separated upload/new-file extensions, case-insensitive, optional leading dot; `*` allows all, `<none>` allows extensionless files (including dotfiles)
+
+Browser POST/PUT/PATCH/DELETE requests using authenticated sessions, and login requests, require the effective same Origin or an exact configured `WC_CORS_ORIGINS` origin. `Sec-Fetch-Site: cross-site` is rejected even for approved origins. HTTPS behind a proxy uses the configured `WC_TRUST_PROXY`. CLI clients without Origin/Fetch Metadata remain supported; GET/HEAD and static assets are unaffected.
+
+Local and SFTP uploads share bounded multipart handling through `POST /api/files/upload`: fields `file`, `path`, optional `provider` (`local` by default, or `sftp`) and `sessionId` for SFTP. Names must be single basenames; traversal and unsafe names return 400. LocalProvider validates destination paths, including symlink targets. Uploads never overwrite: existing entries return 409 `DESTINATION_EXISTS`, size violations return 413, and prohibited extensions return 415. `allowedExtensions` also applies to Shift+F4 creation; existing editor files remain editable regardless of extension. Multipart buffering is limited per request to `maxFileSize`; there is no unbounded raw upload route.
+
+Transfers use `/api/transfers`, and interactive terminals use the existing WebSocket shell transport. Obsolete SSH command, transfer and raw upload endpoints have been removed.
 
 ## Docker
 

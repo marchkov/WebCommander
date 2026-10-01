@@ -368,7 +368,7 @@ class ApiClient {
     });
   }
 
-  async upload(path: string, file: File) {
+  async upload(path: string, file: File, provider: 'local' | 'sftp' = 'local', sessionId?: string) {
     if (demoMode) {
       await new Promise(resolve => setTimeout(resolve, 300));
       return { success: true, filename: file.name, path: `${path}/${file.name}`, size: file.size };
@@ -377,6 +377,8 @@ class ApiClient {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('path', path);
+    formData.append('provider', provider);
+    if (sessionId) formData.append('sessionId', sessionId);
 
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
@@ -386,6 +388,9 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json();
+      if (error.code === 'SSH_SESSION_NOT_FOUND' && sessionId) {
+        window.dispatchEvent(new CustomEvent('ssh-connection-lost', { detail: { sessionId } }));
+      }
       throw new Error(error.error || 'Upload failed');
     }
 
@@ -540,30 +545,6 @@ class ApiClient {
       `${API_BASE}/ssh/files/download?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`,
       '_blank'
     );
-  }
-
-  async sshTransfer(sessionId: string, sourcePath: string, destPath: string, direction: 'upload' | 'download') {
-    if (demoMode) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      return { success: true };
-    }
-
-    return this.request<{ success: boolean }>('/ssh/transfer', {
-      method: 'POST',
-      body: JSON.stringify({ sessionId, sourcePath, destPath, direction }),
-    });
-  }
-
-  async sshExec(sessionId: string, command: string) {
-    if (demoMode) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      return { stdout: `Demo output for: ${command}`, stderr: '', code: 0 };
-    }
-
-    return this.request<{ stdout: string; stderr: string; code: number }>('/ssh/exec', {
-      method: 'POST',
-      body: JSON.stringify({ sessionId, command }),
-    });
   }
 
   // Проверка режима

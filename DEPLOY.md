@@ -2,6 +2,10 @@
 
 ## Production authentication and sessions
 
+On Linux/macOS, `bash start.sh` uses the same local defaults, changes to the project directory before running and stops on installation/build errors. Use `bash start.sh production` for production. The script starts Node with `exec` so stop signals reach the server.
+
+On Windows, `start.bat` defaults to local development, serves the built frontend and binds to `127.0.0.1`. Insecure development settings produce warnings. Use `start.bat production` for strict production validation; an existing `NODE_ENV=production` is also respected. Configure the settings below first. `WC_HOST` controls the bind address; `WC_SERVE_STATIC=true` serves the built frontend independently of the security mode.
+
 Supply these variables to the server process (replace all placeholders):
 
 ```text
@@ -28,6 +32,10 @@ Environment values override corresponding config settings. User resolution is `W
 Leave `WC_CORS_ORIGINS` empty for same-origin deployment. If needed, supply comma-separated exact origins such as `https://files.example.com,https://dashboard.example.com`; wildcard origins are rejected and unknown origins receive no credentialed CORS headers. SameSite=Lax still applies, so this is not a guarantee of third-party cookie access. HTTP and terminal WebSocket upgrades use the same session middleware; WebSockets retain their same-host Origin restriction.
 
 Docker images contain neither `config.json` nor default credentials/secrets. Configure through environment variables, or explicitly mount your own config file read-only. Native Node startup does not automatically load `.env`; export variables or provide them through systemd/your process manager. Login rotates the session ID. Logout closes owned SSH connections, destroys the session and expires its cookie.
+
+Browser state-changing API requests and login validate Origin against the effective request origin (including trusted HTTPS proxy headers) or the exact configured CORS origins. Cross-site Fetch Metadata is rejected even for an approved origin. CLI requests without Origin or Fetch Metadata remain supported. Configure the proxy to replace forwarded headers and set `WC_TRUST_PROXY` only for the actual trusted proxy topology. This guard follows the [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
+
+`WC_MAX_FILE_SIZE` is a positive integer byte limit for both Local and SFTP multipart uploads, including chunked requests (default 104857600). Multipart memory buffering is bounded per request; size violations return 413. `WC_ALLOWED_EXTENSIONS` (or `security.allowedExtensions` in config) restricts uploads and new-file creation: `txt,.JPG,png` is case-insensitive, `*` allows everything, and `<none>` explicitly permits extensionless files and dotfiles. Prohibited extensions return 415; existing editor files remain editable. Uploads use exclusive creation and return 409 `DESTINATION_EXISTS` instead of overwriting files/directories. Destination directories must exist; LocalProvider path and symlink checks remain authoritative. SFTP upload requires an owned SSH session and uses the same `/api/files/upload` endpoint. Legacy SSH command, transfer and raw upload APIs are removed; use provider transfers and interactive terminals.
 
 ## Docker deployment
 

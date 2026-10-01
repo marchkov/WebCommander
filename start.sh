@@ -1,33 +1,34 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# WebCommander Start Script
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-echo "🚀 Starting WebCommander..."
-echo ""
+export NODE_ENV="${NODE_ENV:-development}"
+case "${1:-}" in
+    "") ;;
+    production) export NODE_ENV=production ;;
+    *) echo "Usage: $0 [production]" >&2; exit 1 ;;
+esac
+export WC_HOST="${WC_HOST:-127.0.0.1}"
+export WC_SERVE_STATIC=true
 
-# Check if node is installed
-if ! command -v node &> /dev/null; then
-    echo "❌ Node.js is not installed. Please install Node.js 18+ first."
+echo "Starting WebCommander..."
+if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js is not installed. Please install Node.js 18+ first." >&2
     exit 1
 fi
 
-# Check if dependencies are installed
-if [ ! -d "node_modules" ]; then
-    echo "📦 Installing dependencies..."
+if [[ ! -d node_modules ]]; then
+    echo "Installing dependencies..."
     npm install
 fi
 
-# Build frontend if not exists
-if [ ! -d "dist" ]; then
-    echo "🔨 Building frontend..."
+if [[ ! -d dist ]]; then
+    echo "Building frontend..."
     npm run build
 fi
 
-# Start server
-echo ""
-echo "✅ Starting server..."
-echo "📂 Check config.json for settings"
-echo "🌐 Open http://localhost:3001 in your browser"
-echo ""
-
-NODE_ENV=production node server/index.js
+echo "Mode: $NODE_ENV / Bind address: $WC_HOST"
+echo "Check config.json for settings"
+echo "Open http://localhost:${WC_PORT:-3001} in your browser (HTTPS for production)"
+exec node server/index.js
