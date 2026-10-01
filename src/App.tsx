@@ -5,15 +5,19 @@ import Modal from './components/Modal';
 import StatusBar from './components/StatusBar';
 import Login from './components/Login';
 import FileEditor from './components/FileEditor';
+import ConnectionsModal from './components/ConnectionsModal';
+import { attachSession, localPanel, PANEL_STORAGE_KEY, readBindings, restorePanel, serializePanels, SSHSession } from './utils/connections';
 import SSHConnectModal from './components/SSHConnectModal';
 import { ApiError, api, ProviderDescriptor } from './api/client';
 import { FileItem, PanelState } from './types';
 import { getParentPath, isRootPath, joinPath } from './utils/paths';
-import { itemAction, moveCursor, selectItem } from './utils/navigation';
+import { connectionShortcut, selectionAction, itemAction, moveCursor, selectItem } from './utils/navigation';
 
 type PanelSide = 'left' | 'right';
 
 function App() {
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [restored, setRestored] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [activePanel, setActivePanel] = useState<PanelSide>('left');
@@ -99,24 +103,43 @@ function App() {
   };
 
   const loadInitialData = async () => {
-    try {
-      const leftData = await api.listFiles('/');
-      setLeftPanel(prev => ({
-        ...prev,
-        currentPath: leftData.path,
-        files: leftData.files,
-      }));
-
-      const rightData = await api.listFiles('/');
-      setRightPanel(prev => ({
-        ...prev,
-        currentPath: rightData.path,
-        files: rightData.files,
-      }));
-    } catch (err) {
-      showToast('Failed to load files', 'error');
-    }
+    let bindings = {} as Record<string, any>;
+    try { bindings = readBindings(sessionStorage.getItem(PANEL_STORAGE_KEY)); } catch { /* Storage may be disabled. */ }
+    let sessions: SSHSession[] = [];
+    try { sessions = await api.sshSessions(); } catch { showToast('Could not recover SSH connections', 'error'); }
+    const read = (panel: PanelState, path: string) => panel.mode === 'ssh' && panel.sshSessionId
+      ? api.sshListFiles(panel.sshSessionId, path) : api.listFiles(path);
+    const [left, right] = await Promise.all([
+      restorePanel(leftPanel, bindings.left, sessions, read),
+      restorePanel(rightPanel, bindings.right, sessions, read),
+    ]);
+    setLeftPanel(left); setRightPanel(right); setRestored(true);
   };
+
+  useEffect(() => {
+    if (!authenticated || !restored) return;
+    try { sessionStorage.setItem(PANEL_STORAGE_KEY, serializePanels(leftPanel, rightPanel)); } catch { /* Storage may be disabled. */ }
+  }, [authenticated, restored, leftPanel.mode, leftPanel.sshSessionId, leftPanel.currentPath,
+    rightPanel.mode, rightPanel.sshSessionId, rightPanel.currentPath]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const recover = async () => {
+      showToast('SSH connection lost', 'error');
+      try {
+        const sessions = await api.sshSessions();
+        for (const [side, panel] of [['left', leftPanel], ['right', rightPanel]] as const) {
+          if (panel.mode === 'ssh' && !sessions.some(session => session.sessionId === panel.sshSessionId)) {
+            const next = localPanel(panel);
+            setPanelState(side, next);
+            await loadDirectory('/', side, next);
+          }
+        }
+      } catch { /* A backend outage is not an instruction to reconnect. */ }
+    };
+    window.addEventListener('ssh-connection-lost', recover);
+    return () => window.removeEventListener('ssh-connection-lost', recover);
+  }, [authenticated, leftPanel, rightPanel]);
 
   const getActivePanelState = (): PanelState => {
     return activePanel === 'left' ? leftPanel : rightPanel;
@@ -168,7 +191,7 @@ function App() {
         });
       }
     } catch (err) {
-      showToast('Failed to load directory', 'error');
+      showToast(err instanceof Error ? err.message : 'Failed to load directory', 'error');
     }
   };
 
@@ -217,38 +240,33 @@ function App() {
     ]);
   };
 
-  const handleToggleSSH = async (panel: PanelSide) => {
-    const panelState = panel === 'left' ? leftPanel : rightPanel;
-    
-    if (panelState.mode === 'ssh') {
-      // Disconnect from SSH
-      if (panelState.sshSessionId) {
-        api.sshDisconnect(panelState.sshSessionId).catch(console.error);
-      }
-      // Switch back to local
-      setPanelState(panel, {
-        ...panelState,
-        mode: 'local',
-        sshSessionId: undefined,
-        sshHost: undefined,
-        sshUser: undefined,
-        currentPath: '/',
-        selectedItems: [],
-      });
-      await loadDirectory('/', panel, {
-        ...panelState,
-        mode: 'local',
-        sshSessionId: undefined,
-        sshHost: undefined,
-        sshUser: undefined,
-        currentPath: '/',
-        selectedItems: [],
-      });
+  const handleToggleSSH = async (side: PanelSide) => {
+    const panel = side === 'left' ? leftPanel : rightPanel;
+    if (panel.mode === 'ssh') {
+      const next = localPanel(panel);
+      setPanelState(side, next);
+      await loadDirectory('/', side, next);
       showToast('Switched to local mode', 'info');
-    } else {
-      // Open SSH connect modal
-      setSSHModal({ isOpen: true, targetPanel: panel });
-    }
+    } else setSSHModal({ isOpen: true, targetPanel: side });
+  };
+
+  const useConnection = async (session: SSHSession) => {
+    const next = attachSession(getActivePanelState(), session);
+    setPanelState(activePanel, next);
+    await loadDirectory('~', activePanel, next);
+    setConnectionsOpen(false);
+  };
+
+  const disconnectConnection = async (session: SSHSession) => {
+    await api.sshDisconnect(session.sessionId);
+    await Promise.all((['left', 'right'] as const).map(async side => {
+      const panel = side === 'left' ? leftPanel : rightPanel;
+      if (panel.sshSessionId === session.sessionId) {
+        const next = localPanel(panel);
+        setPanelState(side, next);
+        await loadDirectory('/', side, next);
+      }
+    }));
   };
 
   const handleSSHConnect = async (sessionId: string, host: string, sshUser: string) => {
@@ -550,11 +568,23 @@ function App() {
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!authenticated || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!authenticated || !restored || e.defaultPrevented || e.altKey) return;
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-terminal-drawer]')) return;
-    if (modal.isOpen || editor.isOpen || sshModal.isOpen) return;
+    if (modal.isOpen || editor.isOpen || sshModal.isOpen || connectionsOpen) return;
     const panel = getActivePanelState();
-    
+    const command = connectionShortcut(e);
+    if (command) {
+      e.preventDefault();
+      if (command === 'connections') setConnectionsOpen(true);
+      else if (command === 'refresh') handleRefresh();
+      else if (command === 'swap') handleSwap();
+      else {
+        const update = activePanel === 'left' ? setLeftPanel : setRightPanel;
+        update(state => selectionAction(state, command));
+      }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) return;
     switch (e.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
@@ -597,12 +627,13 @@ function App() {
         setActivePanel(prev => prev === 'left' ? 'right' : 'left');
         break;
     }
-  }, [authenticated, activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
+  }, [authenticated, restored, connectionsOpen, activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
 
   useEffect(() => {
+    if (!authenticated) return;
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  }, [authenticated, handleKeyDown]);
 
   if (!authenticated) {
     return <Login onLoginSuccess={handleLoginSuccess} />;
@@ -612,6 +643,7 @@ function App() {
     <div className="h-screen w-screen flex flex-col bg-gray-950 text-gray-100 overflow-hidden">
       {/* Toolbar */}
       <Toolbar
+        onConnections={() => setConnectionsOpen(true)}
         onCopy={handleCopy}
         onMove={handleMove}
         onDelete={handleDelete}
@@ -698,6 +730,10 @@ function App() {
         onConfirm={(value) => modal.action?.(value)}
       />
 
+      {connectionsOpen && <ConnectionsModal onClose={() => setConnectionsOpen(false)} onUse={useConnection}
+        onDisconnect={disconnectConnection} onNew={() => {
+          setConnectionsOpen(false); setSSHModal({ isOpen: true, targetPanel: activePanel });
+        }} />}
       {/* SSH Connect Modal */}
       <SSHConnectModal
         isOpen={sshModal.isOpen}

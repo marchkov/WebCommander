@@ -3,6 +3,28 @@ import { isRootPath } from './paths';
 
 export const PARENT_ITEM_ID = '..';
 
+type SelectionAction = 'all' | 'clear' | 'invert' | 'insert';
+export function connectionShortcut(event: { key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): SelectionAction | 'connections' | 'refresh' | 'swap' | undefined {
+  if (event.altKey || event.shiftKey) return;
+  if (event.ctrlKey || event.metaKey) {
+    return ({ f: 'connections', r: 'refresh', u: 'swap', a: 'all' } as const)[event.key.toLowerCase() as 'f' | 'r' | 'u' | 'a'];
+  }
+  if (event.key === 'Insert') return 'insert';
+  return ({ NumpadMultiply: 'invert', NumpadAdd: 'all', NumpadSubtract: 'clear' } as const)[event.code as 'NumpadMultiply' | 'NumpadAdd' | 'NumpadSubtract'];
+}
+
+export function selectionAction(panel: PanelState, action: SelectionAction): PanelState {
+  const real = panel.files.map(file => file.id).filter(id => id !== PARENT_ITEM_ID);
+  if (action === 'all') return { ...panel, selectedItems: real };
+  if (action === 'clear') return { ...panel, selectedItems: [] };
+  if (action === 'invert') return { ...panel, selectedItems: real.filter(id => !panel.selectedItems.includes(id)) };
+  const ids = visibleItemIds(panel);
+  const id = currentItemId(panel) || ids[0];
+  const selected = panel.selectedItems.filter(item => real.includes(item));
+  const selectedItems = real.includes(id) ? (selected.includes(id) ? selected.filter(item => item !== id) : [...selected, id]) : selected;
+  return { ...panel, selectedItems, focusedItemId: ids[Math.min(ids.length - 1, ids.indexOf(id) + 1)] };
+}
+
 export function sortFiles(files: FileItem[], sortBy: string, sortOrder: 'asc' | 'desc'): FileItem[] {
   return [...files].sort((a, b) => {
     if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;

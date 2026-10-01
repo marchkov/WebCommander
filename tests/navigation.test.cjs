@@ -142,3 +142,125 @@ test('viewer is read-only and Ctrl+S cannot write; editor saves via correct loca
     }
   }
 });
+
+
+const { serializePanels, readBindings, restorePanel, attachSession } = loadTs(path.resolve(__dirname, '../src/utils/connections.ts'));
+const { connectionShortcut, selectionAction } = loadTs(path.resolve(__dirname, '../src/utils/navigation.ts'));
+const session = { sessionId: 'active', host: 'host', port: 22, username: 'user', connectedAt: '2026-01-01', status: 'ready' };
+test('panel serialization excludes credentials and safely parses malformed storage', () => {
+  const saved = serializePanels({ ...panel(), ...session, mode: 'ssh', sshSessionId: 'active', password: 'secret', privateKey: 'key', passphrase: 'phrase' }, panel());
+  assert.deepEqual(JSON.parse(saved), { left: { mode: 'ssh', sshSessionId: 'active', currentPath: '/repo' }, right: { mode: 'local', currentPath: '/repo' } });
+  for (const text of ['{', 'null', null]) assert.deepEqual(readBindings(text), {});
+});
+test('restore panels independently, preserve existing session ID, and fall back from stale path to home', async () => {
+  const calls = [];
+  const read = async (state, path) => {
+    calls.push([state.mode, state.sshSessionId, path]);
+    if (path === '/stale') throw new Error('missing');
+    return { path: path === '~' ? '/home/user' : path, files: [] };
+  };
+  const [left, right] = await Promise.all([
+    restorePanel(panel(), { mode: 'ssh', sshSessionId: 'active', currentPath: '/stale' }, [session], read),
+    restorePanel(panel(), { mode: 'ssh', sshSessionId: 'dead', currentPath: '/secret' }, [session], read),
+  ]);
+  assert.equal(left.sshSessionId, 'active'); assert.equal(left.currentPath, '/home/user');
+  assert.equal(right.mode, 'local'); assert.equal(right.currentPath, '/');
+  assert.ok(calls.some(call => call[1] === 'active' && call[2] === '~'));
+  assert.equal(calls.some(call => call[2] === '/secret'), false);
+  const restored = await restorePanel(panel(), { mode: 'ssh', sshSessionId: 'active', currentPath: '/saved' }, [session], read);
+  assert.equal(restored.currentPath, '/saved');
+  const local = await restorePanel(panel(), { mode: 'local', currentPath: '/stale' }, [], read);
+  assert.equal(local.currentPath, '/');
+  const attached = attachSession(panel(), session);
+  assert.equal(attached.sshSessionId, 'active'); assert.equal(attached.currentPath, '~');
+  assert.equal(attached.sshHost, 'host'); assert.equal(attached.sshUser, 'user');
+});
+test('connection and selection shortcuts resolve without hijacking other modifiers', () => {
+  const key = (key, code = '', extra = {}) => connectionShortcut({ key, code, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...extra });
+  assert.equal(key('f', '', { ctrlKey: true }), 'connections');
+  assert.equal(key('r', '', { ctrlKey: true }), 'refresh');
+  assert.equal(key('u', '', { ctrlKey: true }), 'swap');
+  assert.equal(key('a', '', { ctrlKey: true }), 'all');
+  assert.equal(key('f', '', { ctrlKey: true, shiftKey: true }), undefined);
+  assert.equal(key('*', 'NumpadMultiply'), 'invert');
+  assert.equal(key('+', 'NumpadAdd'), 'all');
+  assert.equal(key('-', 'NumpadSubtract'), 'clear');
+  assert.equal(key('Insert'), 'insert');
+});
+test('Insert toggles and advances in visible order; selection commands exclude parent', () => {
+  const state = panel({ focusedItemId: 'alpha', selectedItems: ['z.txt'] });
+  const next = selectionAction(state, 'insert');
+  assert.deepEqual(next.selectedItems, ['z.txt', 'alpha']); assert.equal(next.focusedItemId, 'beta');
+  assert.deepEqual(selectionAction({ ...next, focusedItemId: 'alpha' }, 'insert').selectedItems, ['z.txt']);
+  assert.deepEqual(selectionAction({ ...state, focusedItemId: '..' }, 'insert').selectedItems, ['z.txt']);
+  assert.deepEqual(selectionAction(state, 'all').selectedItems, files.map(file => file.id));
+  assert.deepEqual(selectionAction(state, 'invert').selectedItems, files.filter(file => file.id !== 'z.txt').map(file => file.id));
+  assert.deepEqual(selectionAction(state, 'clear').selectedItems, []);
+});
+test('login uses native username/password/submit focus order, valid form submission and duplicate protection', async () => {
+  const React = require('react');
+  const { renderToStaticMarkup } = require('react-dom/server');
+  const states = ['user', 'password', '', false];
+  let requests = 0, finish;
+  const Login = loadTs(path.resolve(__dirname, '../src/components/Login.tsx'), {
+    react: { ...React, useState: () => [states.shift(), () => {}], useRef: () => ({ current: false }) },
+    '../api/client': { api: { isDemoMode: () => false, login: () => { requests++; return new Promise(resolve => { finish = resolve; }); } } },
+  }).default;
+  const tree = Login({ onLoginSuccess() {} });
+  const html = renderToStaticMarkup(tree);
+  const inputs = html.match(/<(?:input|button)\b[^>]*>/g);
+  assert.equal(inputs.length, 3);
+  assert.match(inputs[0], /id="username"/); assert.match(inputs[0], /autofocus/);
+  assert.match(inputs[1], /id="password"/); assert.match(inputs[1], /type="password"/);
+  assert.match(inputs[2], /type="submit"/);
+  assert.match(html, /for="username"/); assert.match(html, /for="password"/);
+  assert.doesNotMatch(html, /tabindex/i);
+  const find = element => {
+    if (!element || typeof element !== 'object') return;
+    if (element.type === 'form') return element;
+    return React.Children.toArray(element.props?.children).map(find).find(Boolean);
+  };
+  const form = find(tree);
+  assert.equal(form.props.onKeyDown, undefined);
+  await form.props.onSubmit({ preventDefault() {}, currentTarget: { checkValidity: () => false } });
+  assert.equal(requests, 0);
+  const event = { preventDefault() {}, currentTarget: { checkValidity: () => true } };
+  const first = form.props.onSubmit(event); await form.props.onSubmit(event);
+  assert.equal(requests, 1);
+  finish({ success: true, username: 'user' }); await first;
+});
+
+test('App leaves login Tab native and protects terminal/input/editor shortcuts; Ctrl+F opens Connections', () => {
+  const React = require('react');
+  const OriginalElement = global.Element;
+  class Target { constructor(protectedInput) { this.protectedInput = protectedInput; } closest() { return this.protectedInput; } }
+  global.Element = Target;
+  try {
+    for (const [authenticated, protectedInput, editorOpen, key, ctrlKey, expected] of [
+      [false, false, false, 'Tab', false, false],
+      [false, false, false, 'f', true, false],
+      [true, true, false, 'f', true, false],
+      [true, true, false, 'Tab', false, false],
+      [true, false, true, 'f', true, false],
+      [true, false, false, 'f', true, true],
+    ]) {
+      const states = [false, true, authenticated, '', 'left', panel(), panel(), { isOpen: false }, { isOpen: editorOpen }, { isOpen: false }, null];
+      const changes = [];
+      let handler, index = 0;
+      const overrides = {
+        react: { ...React, useState: () => { const i = index++; return [states[i], value => changes.push([i, value])]; },
+          useEffect() {}, useCallback: fn => { handler = fn; return fn; } },
+        './api/client': { api: { isDemoMode: () => false } },
+      };
+      for (const component of ['FilePanel', 'Toolbar', 'Modal', 'StatusBar', 'Login', 'FileEditor', 'SSHConnectModal', 'ConnectionsModal']) {
+        overrides['./components/' + component] = () => null;
+      }
+      loadTs(path.resolve(__dirname, '../src/App.tsx'), overrides).default();
+      let prevented = false;
+      handler({ key, code: '', ctrlKey, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false,
+        target: new Target(protectedInput), preventDefault() { prevented = true; } });
+      assert.equal(prevented, expected);
+      assert.deepEqual(changes, expected ? [[0, true]] : []);
+    }
+  } finally { global.Element = OriginalElement; }
+});

@@ -2,6 +2,7 @@ import React from 'react';
 import { api } from '../api/client';
 
 interface ToolbarProps {
+  onConnections: () => void;
   onCopy: () => void;
   onMove: () => void;
   onDelete: () => void;
@@ -19,6 +20,7 @@ interface ToolbarProps {
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
+  onConnections,
   onCopy,
   onMove,
   onDelete,
@@ -35,6 +37,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   canExtract,
 }) => {
   const buttons = [
+    { icon: 'fa-network-wired', label: 'Connections (Ctrl+F)', action: onConnections, disabled: false, color: 'hover:text-cyan-400' },
     { icon: 'fa-copy', label: 'Copy (F5)', action: onCopy, disabled: !hasSelection, color: 'hover:text-cyan-400' },
     { icon: 'fa-arrows-left-right', label: 'Move (F6)', action: onMove, disabled: !hasSelection, color: 'hover:text-blue-400' },
     { icon: 'fa-trash', label: 'Delete (F8)', action: onDelete, disabled: !hasSelection, color: 'hover:text-red-400' },

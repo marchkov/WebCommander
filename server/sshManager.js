@@ -8,6 +8,7 @@ const connections = new Map();
 class SSHManager {
   // Подключение к серверу
   static async connect(sessionId, config, ownerSessionId) {
+    if (connections.has(sessionId)) throw Object.assign(new Error('SSH session already exists'), { status: 409 });
     return new Promise((resolve, reject) => {
       const conn = new Client();
       
@@ -32,34 +33,45 @@ class SSHManager {
         return reject(new Error('Password or private key required'));
       }
 
+      const session = { conn, config: { host: config.host, port: config.port || 22, username: config.username }, ownerSessionId, status: 'connecting' };
+      connections.set(sessionId, session);
+      const remove = status => {
+        session.status = status;
+        if (connections.get(sessionId) === session) connections.delete(sessionId);
+      };
       conn.on('ready', () => {
-        connections.set(sessionId, {
-          conn,
-          config,
-          ownerSessionId,
-          connectedAt: new Date()
-        });
+        if (connections.get(sessionId) !== session) return conn.end();
+        session.status = 'ready';
+        session.connectedAt = new Date();
         resolve({ success: true, host: config.host, username: config.username });
       });
 
       conn.on('error', (err) => {
-        connections.delete(sessionId);
+        remove('error');
+        conn.end();
         reject(new Error(`SSH connection failed: ${err.message}`));
       });
 
       conn.on('close', () => {
-        connections.delete(sessionId);
+        remove('closed');
+        reject(new Error('SSH connection closed'));
       });
 
-      conn.connect(connectionConfig);
+      conn.on('end', () => {
+        remove('closed');
+        conn.end();
+        reject(new Error('SSH connection closed'));
+      });
+      try { conn.connect(connectionConfig); }
+      catch (error) { remove('error'); conn.end(); reject(error); }
     });
   }
 
   // Проверка соединения
-  static getConnection(sessionId) {
+  static getConnection(sessionId, ownerSessionId) {
     const session = connections.get(sessionId);
-    if (!session) {
-      throw new Error('SSH session not found. Please connect first.');
+    if (!session || session.status !== 'ready' || (ownerSessionId !== undefined && session.ownerSessionId !== ownerSessionId)) {
+      throw Object.assign(new Error('SSH connection lost'), { code: 'SSH_SESSION_NOT_FOUND', status: 404 });
     }
     return session;
   }
@@ -123,11 +135,12 @@ class SSHManager {
   }
 
   // Отключение
-  static disconnect(sessionId) {
+  static disconnect(sessionId, ownerSessionId) {
     const session = connections.get(sessionId);
     if (session) {
-      session.conn.end();
+      if (ownerSessionId !== undefined && session.ownerSessionId !== ownerSessionId) this.getConnection(sessionId, ownerSessionId);
       connections.delete(sessionId);
+      session.conn.end();
     }
   }
 
@@ -394,15 +407,17 @@ class SSHManager {
   }
 
   // Получить список активных сессий
-  static getActiveSessions() {
+  static getActiveSessions(ownerSessionId) {
     const sessions = [];
     for (const [sessionId, session] of connections) {
+      if (session.status !== 'ready' || (ownerSessionId !== undefined && session.ownerSessionId !== ownerSessionId)) continue;
       sessions.push({
         sessionId,
         host: session.config.host,
         port: session.config.port || 22,
         username: session.config.username,
         connectedAt: session.connectedAt,
+        status: session.status,
       });
     }
     return sessions;

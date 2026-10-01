@@ -157,3 +157,13 @@ See [DEPLOY.md](DEPLOY.md) for server deployment and [SSH_GUIDE.md](SSH_GUIDE.md
 ## License
 
 MIT
+
+### SSH connection recovery and shortcuts
+
+SSH connections live in backend memory. Reloading the page or navigating the frontend keeps them alive while the backend process and SSH transport remain alive. Backend restart, reboot or crash ends them. Keepalive runs every 10 seconds with at most three unanswered probes.
+
+Open **Connections (Ctrl+F)** to discover your web session's active SSH connections, attach one to the active panel without connecting again, disconnect it, or start a new connection. Switching a panel to Local only detaches that panel. Disconnecting from Connections resets both panels if they share that connection.
+
+Each tab saves only panel mode, SSH session ID and current path in `sessionStorage`, never passwords, keys or passphrases. On reload, each panel restores its known live session and path, with home (`~`) or local root (`/`) fallback. Lost connections require fresh authentication; no automatic credential-based reconnect occurs. Sessions belonging to a different web session cannot be discovered or used.
+
+Additional panel shortcuts: Insert toggles the current row and advances; Ctrl+A / Num+ select all real entries; Num* inverts selection; Num- clears selection (no pattern masks). Ctrl+R refreshes and Ctrl+U swaps panels. Shortcuts leave terminal and text input alone. Login uses native Tab/Shift+Tab and form submission with Enter; Username receives initial focus.

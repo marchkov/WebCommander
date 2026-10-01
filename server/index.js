@@ -97,22 +97,23 @@ const createSftpProvider = sessionId => new SftpProvider({
   sessionId,
   sshManager: SSHManager,
 });
-const initializeSftpProvider = async sessionId => {
+const initializeSftpProvider = async (sessionId, req) => {
+  SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
   const provider = createSftpProvider(sessionId);
   await provider.initialize();
   return provider;
 };
-const createProviderFromDescriptor = async descriptor => {
+const createProviderFromDescriptor = async (descriptor, req) => {
   if (!descriptor || !descriptor.provider || !descriptor.path) {
     throw new Error('provider and path are required');
   }
 
-  const provider = await createProvider(descriptor.provider, descriptor.sessionId);
+  const provider = await createProvider(descriptor.provider, descriptor.sessionId, req);
   return { provider, path: await provider.resolvePath(descriptor.path) };
 };
-const createProvider = async (providerType, sessionId) => {
+const createProvider = async (providerType, sessionId, req) => {
   if (providerType === 'local') return localProvider;
-  if (providerType === 'sftp') return initializeSftpProvider(sessionId);
+  if (providerType === 'sftp') return initializeSftpProvider(sessionId, req);
   throw new Error(`Unsupported provider: ${providerType}`);
 };
 
@@ -395,8 +396,8 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
   }
 
   try {
-    const sourceDescriptor = await createProviderFromDescriptor(source);
-    const destinationDescriptor = await createProviderFromDescriptor(destination);
+    const sourceDescriptor = await createProviderFromDescriptor(source, req);
+    const destinationDescriptor = await createProviderFromDescriptor(destination, req);
     const transfer = {
       sourceProvider: sourceDescriptor.provider,
       sourcePath: sourceDescriptor.path,
@@ -422,7 +423,7 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
     if (error.message === 'provider and path are required' || error.message.startsWith('Unsupported provider:')) {
       return res.status(400).json({ error: error.message });
     }
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -438,7 +439,7 @@ app.post('/api/archives/create', requireAuth, async (req, res) => {
   }
 
   try {
-    const provider = await createProvider(providerType, sessionId);
+    const provider = await createProvider(providerType, sessionId, req);
     const result = await archiveService.createZip({
       provider,
       sourcePaths: sources,
@@ -452,7 +453,7 @@ app.post('/api/archives/create', requireAuth, async (req, res) => {
     if (error.statusCode === 400 || error.statusCode === 403) {
       return res.status(error.statusCode).json({ error: error.message });
     }
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -467,7 +468,7 @@ app.post('/api/archives/extract', requireAuth, async (req, res) => {
   }
 
   try {
-    const provider = await createProvider(providerType, sessionId);
+    const provider = await createProvider(providerType, sessionId, req);
     const result = await archiveService.extractZip({
       provider,
       archivePath: archive,
@@ -482,7 +483,7 @@ app.post('/api/archives/extract', requireAuth, async (req, res) => {
     if (error.statusCode === 400 || error.statusCode === 403) {
       return res.status(error.statusCode).json({ error: error.message });
     }
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -611,7 +612,7 @@ app.post('/api/ssh/connect', requireAuth, async (req, res) => {
     }, req.sessionID);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -620,16 +621,16 @@ app.post('/api/ssh/disconnect', requireAuth, (req, res) => {
   const { sessionId } = req.body;
   
   try {
-    SSHManager.disconnect(sessionId);
+    SSHManager.disconnect(sessionId, config.auth.enabled ? req.sessionID : undefined);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
 // Список активных сессий
 app.get('/api/ssh/sessions', requireAuth, (req, res) => {
-  res.json(SSHManager.getActiveSessions());
+  res.json(SSHManager.getActiveSessions(config.auth.enabled ? req.sessionID : undefined));
 });
 
 // Листинг директории через SSH
@@ -637,12 +638,12 @@ app.get('/api/ssh/files', requireAuth, async (req, res) => {
   const { sessionId, path: dirPath } = req.query;
 
   try {
-    const provider = await initializeSftpProvider(sessionId);
+    const provider = await initializeSftpProvider(sessionId, req);
     const remotePath = await provider.resolvePath(dirPath || '~');
     const files = await provider.list(remotePath);
     res.json({ path: remotePath, files });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -651,10 +652,10 @@ app.get('/api/ssh/files/read', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
 
   try {
-    const content = await (await initializeSftpProvider(sessionId)).read(filePath);
+    const content = await (await initializeSftpProvider(sessionId, req)).read(filePath);
     res.json({ content, path: filePath });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -663,10 +664,10 @@ app.post('/api/ssh/files/write', requireAuth, async (req, res) => {
   const { sessionId, path: filePath, content } = req.body;
 
   try {
-    await (await initializeSftpProvider(sessionId)).write(filePath, content);
+    await (await initializeSftpProvider(sessionId, req)).write(filePath, content);
     res.json({ success: true, path: filePath });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -675,10 +676,10 @@ app.post('/api/ssh/files/mkdir', requireAuth, async (req, res) => {
   const { sessionId, path: dirPath } = req.body;
 
   try {
-    await (await initializeSftpProvider(sessionId)).mkdir(dirPath);
+    await (await initializeSftpProvider(sessionId, req)).mkdir(dirPath);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -687,13 +688,13 @@ app.post('/api/ssh/files/delete', requireAuth, async (req, res) => {
   const { sessionId, path: targetPath, isDirectory } = req.body;
 
   try {
-    await (await initializeSftpProvider(sessionId)).delete(targetPath, {
+    await (await initializeSftpProvider(sessionId, req)).delete(targetPath, {
       recursive: Boolean(isDirectory),
       force: true,
     });
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -702,10 +703,10 @@ app.post('/api/ssh/files/rename', requireAuth, async (req, res) => {
   const { sessionId, path: oldPath, newPath } = req.body;
 
   try {
-    await (await initializeSftpProvider(sessionId)).rename(oldPath, newPath);
+    await (await initializeSftpProvider(sessionId, req)).rename(oldPath, newPath);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -714,7 +715,7 @@ app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
 
   try {
-    const provider = await initializeSftpProvider(sessionId);
+    const provider = await initializeSftpProvider(sessionId, req);
     const info = await provider.stat(filePath);
     const fileName = path.posix.basename(info.path);
     const mimeType = mime.lookup(info.path) || 'application/octet-stream';
@@ -724,7 +725,7 @@ app.get('/api/ssh/files/download', requireAuth, async (req, res) => {
     res.setHeader('Content-Length', info.size);
     provider.createReadStream(info.path).pipe(res);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -734,20 +735,22 @@ app.post('/api/ssh/files/upload', requireAuth, async (req, res) => {
   
   try {
     // Получаем буфер из запроса
+    SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', async () => {
       const buffer = Buffer.concat(chunks);
       
       try {
+        SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
         await SSHManager.uploadFile(sessionId, filePath, buffer);
         res.json({ success: true });
       } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message, code: error.code });
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -756,10 +759,10 @@ app.get('/api/ssh/files/info', requireAuth, async (req, res) => {
   const { sessionId, path: filePath } = req.query;
 
   try {
-    const info = await (await initializeSftpProvider(sessionId)).stat(filePath);
+    const info = await (await initializeSftpProvider(sessionId, req)).stat(filePath);
     res.json(info);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -768,10 +771,11 @@ app.post('/api/ssh/transfer', requireAuth, async (req, res) => {
   const { sessionId, sourcePath, destPath, direction } = req.body;
   
   try {
+    SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
     await SSHManager.transferFile(sessionId, sourcePath, destPath, direction);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 
@@ -780,10 +784,11 @@ app.post('/api/ssh/exec', requireAuth, async (req, res) => {
   const { sessionId, command } = req.body;
   
   try {
+    SSHManager.getConnection(sessionId, config.auth.enabled ? req.sessionID : undefined);
     const result = await SSHManager.exec(sessionId, command);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
   }
 });
 

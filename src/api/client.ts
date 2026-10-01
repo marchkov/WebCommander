@@ -1,3 +1,4 @@
+import type { SSHSession } from '../utils/connections';
 const API_BASE = '/api';
 
 export type ProviderDescriptor = {
@@ -78,6 +79,7 @@ class ApiClient {
         try {
           const error = await response.json();
           message = error.error || message;
+          if (error.code === 'SSH_SESSION_NOT_FOUND') window.dispatchEvent(new Event('ssh-connection-lost'));
           conflictType = error.conflictType;
         } catch {
           message = response.statusText || message;
@@ -100,6 +102,8 @@ class ApiClient {
   // Mock запросы для demo режима
   private async mockRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
     await new Promise(resolve => setTimeout(resolve, 300)); // Имитация задержки
+
+    if (url === '/ssh/sessions') return [] as T;
 
     // Auth endpoints
     if (url === '/auth/login') {
@@ -419,6 +423,10 @@ class ApiClient {
     });
   }
 
+  async sshSessions(): Promise<SSHSession[]> {
+    return this.request<SSHSession[]>('/ssh/sessions');
+  }
+
   async sshDisconnect(sessionId: string) {
     if (demoMode) {
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -432,17 +440,7 @@ class ApiClient {
   }
 
   async sshGetSessions() {
-    if (demoMode) {
-      return [];
-    }
-
-    return this.request<Array<{
-      sessionId: string;
-      host: string;
-      port: number;
-      username: string;
-      connectedAt: string;
-    }>>('/ssh/sessions');
+    return this.sshSessions();
   }
 
   async sshListFiles(sessionId: string, path: string) {

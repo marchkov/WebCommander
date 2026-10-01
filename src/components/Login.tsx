@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { api } from '../api/client';
-import { FileItem } from '../types';
 
 interface LoginProps {
   onLoginSuccess: (username: string) => void;
@@ -11,9 +10,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const submitting = useRef(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submitting.current || !e.currentTarget.checkValidity()) return;
+    submitting.current = true;
     setError('');
     setLoading(true);
 
@@ -25,6 +27,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
@@ -53,7 +56,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <form onSubmit={handleSubmit} className="px-8 pb-8">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-2">
                   Username
                 </label>
                 <div className="relative">
@@ -61,6 +64,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     <i className="fa-solid fa-user text-gray-500"></i>
                   </div>
                   <input
+                    id="username"
+                    name="username"
+                    autoComplete="username"
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -73,7 +79,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
                   Password
                 </label>
                 <div className="relative">
@@ -81,6 +87,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     <i className="fa-solid fa-lock text-gray-500"></i>
                   </div>
                   <input
+                    id="password"
+                    name="password"
+                    autoComplete="current-password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
