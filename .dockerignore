@@ -8,3 +8,4 @@ gitignore
 .env
 .env.*
 coverage
+config.json

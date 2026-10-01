@@ -1,5 +1,34 @@
 # Инструкция по деплою WebCommander на сервер
 
+## Аутентификация и сессии в production
+
+Передайте серверному процессу переменные, заменив все примеры своими значениями:
+
+```text
+NODE_ENV=production
+WC_AUTH_ENABLED=true
+WC_AUTH_USERS=[{"username":"admin","password":"<strong-password>"}]
+WC_SESSION_SECRET=<at-least-32-random-characters>
+WC_COOKIE_SECURE=true
+WC_TRUST_PROXY=1
+WC_ALLOW_MEMORY_SESSION_STORE=true
+WC_SESSION_COOKIE_NAME=webcommander.sid
+WC_SESSION_MAX_AGE=86400000
+WC_CORS_ORIGINS=
+```
+
+Production не запускается с отсутствующим, шаблонным или коротким секретом сессии (минимум 32 символа), пустыми учётными данными, `admin/***REMOVED***`, повреждённым JSON пользователей или MemoryStore без явного разрешения. Секрет не генерируется автоматически. В development/test прежние значения по умолчанию допускаются с предупреждениями без раскрытия значений.
+
+`WC_ALLOW_MEMORY_SESSION_STORE=true` допустимо только как осознанный выбор для одного процесса/экземпляра, если потеря сессий после перезапуска приемлема. Сессии хранятся только в памяти; несколько экземпляров и большие production-нагрузки этим хранилищем не поддерживаются. Внешнее хранилище пока не добавляется. Пароли в конфигурации остаются открытым текстом; сравнение хешей за постоянное время не заменяет хранение хешированных паролей. Миграция хранения паролей — отдельный этап.
+
+Используйте HTTPS. `WC_COOKIE_SECURE` по умолчанию true в production и false в остальных режимах; явное значение env/config имеет приоритет. Cookie всегда HttpOnly и SameSite=Lax. `WC_TRUST_PROXY=1` задавайте только для одного доверенного reverse proxy, без обходного недоверенного доступа к backend. По умолчанию proxy не доверяются; поддерживаются boolean и неотрицательное количество переходов. Без HTTPS или доверенного HTTPS-прокси Secure-cookie не выдаётся. См. [документацию Express Session](https://expressjs.com/en/resources/middleware/session/).
+
+Env перекрывает соответствующие настройки config. Пользователи берутся из `WC_AUTH_USERS`, затем `config.auth.users`, затем из явно заданных `WC_AUTH_USERNAME`/`WC_AUTH_PASSWORD`. В production не создаётся неявный пользователь. Для замены пользователей из config задайте `WC_AUTH_USERS`. Дополнительные поля config расположены в `auth`: `cookieSecure`, `trustProxy`, `cookieName`, `allowMemorySessionStore`, `corsOrigins`.
+
+Пустой `WC_CORS_ORIGINS` означает размещение на одном origin. Для разрешённого доступа используйте точные origin через запятую, например `https://files.example.com,https://dashboard.example.com`. Wildcard отклоняется; неизвестные origin не получают credentialed CORS headers. SameSite=Lax сохраняется, поэтому сторонние cookie этим не разрешаются автоматически. HTTP и терминальный WebSocket используют один session middleware; WebSocket сохраняет проверку того же host.
+
+Docker-образ не содержит `config.json`, паролей и секретов по умолчанию. Передавайте env или явно подключите собственный config только для чтения. `.env.example` требует настройки перед production-запуском. Node напрямую не читает `.env`: экспортируйте переменные или передайте их через systemd/менеджер процессов. При входе меняется ID сессии; logout закрывает её SSH-соединения, уничтожает сессию и удаляет cookie.
+
 ## 🚀 Быстрый старт
 
 ### 1. Загрузка на сервер

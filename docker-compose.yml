@@ -14,11 +14,14 @@ services:
       WC_ALLOWED_PATHS: ${WC_ALLOWED_PATHS:-/data/webcommander}
       WC_BLOCKED_PATHS: ${WC_BLOCKED_PATHS:-/etc,/root,/var/log,/proc,/sys,/dev,/bin,/sbin,/usr,/lib}
       WC_AUTH_ENABLED: ${WC_AUTH_ENABLED:-true}
-      WC_AUTH_USERNAME: ${WC_AUTH_USERNAME:-denisius}
-      WC_AUTH_PASSWORD: ${WC_AUTH_PASSWORD:-***REMOVED***}
-      WC_AUTH_USERS: ${WC_AUTH_USERS:-[{\"username\":\"denisius\",\"password\":\"***REMOVED***\"}]}
-      WC_SESSION_SECRET: ${WC_SESSION_SECRET:-***REMOVED***}
+      WC_AUTH_USERS: ${WC_AUTH_USERS:?Set WC_AUTH_USERS to a JSON array of configured users}
+      WC_SESSION_SECRET: ${WC_SESSION_SECRET:?Set a random session secret of at least 32 characters}
       WC_SESSION_MAX_AGE: ${WC_SESSION_MAX_AGE:-86400000}
+      WC_COOKIE_SECURE: ${WC_COOKIE_SECURE:-true}
+      WC_TRUST_PROXY: ${WC_TRUST_PROXY:-false}
+      WC_SESSION_COOKIE_NAME: ${WC_SESSION_COOKIE_NAME:-webcommander.sid}
+      WC_ALLOW_MEMORY_SESSION_STORE: ${WC_ALLOW_MEMORY_SESSION_STORE:-false}
+      WC_CORS_ORIGINS: ${WC_CORS_ORIGINS:-}
       WC_MAX_FILE_SIZE: ${WC_MAX_FILE_SIZE:-104857600}
       WC_ALLOWED_EXTENSIONS: ${WC_ALLOWED_EXTENSIONS:-*}
     volumes:

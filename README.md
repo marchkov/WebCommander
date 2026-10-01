@@ -125,6 +125,9 @@ Important variables:
 - `WC_AUTH_USERNAME` and `WC_AUTH_PASSWORD` - single-user credentials
 - `WC_AUTH_USERS` - JSON array of users
 - `WC_SESSION_SECRET` - session secret
+- `WC_COOKIE_SECURE`, `WC_TRUST_PROXY`, `WC_SESSION_COOKIE_NAME` - HTTPS/proxy cookie settings
+- `WC_ALLOW_MEMORY_SESSION_STORE` - explicit production opt-in for a single instance
+- `WC_CORS_ORIGINS` - comma-separated exact origins; empty means same-origin
 - `WC_MAX_FILE_SIZE` - upload size limit in bytes
 
 ## Docker
@@ -135,7 +138,7 @@ The default Compose configuration mounts `D:/Example` to `/data/webcommander` an
 docker compose up -d --build
 ```
 
-Open `http://localhost:3001` and sign in with the credentials configured in `.env`.
+Configure production authentication, session-store policy and HTTPS using [DEPLOY.md](DEPLOY.md), then sign in through the HTTPS endpoint with the configured credentials. Production rejects development credentials and weak/missing session secrets; `.env.example` must be filled in before startup.
 
 To stop the application:
 

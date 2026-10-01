@@ -132,11 +132,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </button>
             </div>
 
-            <div className="mt-6 pt-6 border-t border-gray-700/50">
-              <p className="text-xs text-gray-500 text-center">
-                Default credentials: admin / ***REMOVED***
-              </p>
-            </div>
           </form>
         </div>
 

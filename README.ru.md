@@ -235,8 +235,11 @@ WC_ROOT_PATH=/data/webcommander
 WC_ALLOWED_PATHS=/data/webcommander
 WC_BLOCKED_PATHS=/etc,/root,/var/log
 WC_AUTH_ENABLED=true
-WC_AUTH_USERS=[{"username":"admin","password":"***REMOVED***"}]
-WC_SESSION_SECRET=<set-random-session-secret>
+WC_AUTH_USERS=[{"username":"admin","password":"<strong-password>"}]
+WC_SESSION_SECRET=<at-least-32-random-characters>
+WC_COOKIE_SECURE=true
+WC_TRUST_PROXY=1
+WC_ALLOW_MEMORY_SESSION_STORE=true
 WC_SESSION_MAX_AGE=86400000
 WC_MAX_FILE_SIZE=104857600
 WC_ALLOWED_EXTENSIONS=*
@@ -334,7 +337,7 @@ WebCommander поддерживает работу с удалёнными се�
 ### Вход в систему
 
 1. Откройте веб-интерфейс в браузере
-2. Введите логин и пароль (по умолчанию: admin / ***REMOVED***)
+2. Введите настроенные логин и пароль. Значения development/test по умолчанию в production запрещены.
 3. После успешной авторизации откроется файловый менеджер
 
 ### Основные операции

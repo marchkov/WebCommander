@@ -18,8 +18,6 @@ ENV NODE_ENV=production \
     WC_ALLOWED_PATHS=/data/webcommander \
     WC_BLOCKED_PATHS=/etc,/root,/var/log \
     WC_AUTH_ENABLED=true \
-    WC_AUTH_USERS=[{"username":"admin","password":"***REMOVED***"}] \
-    WC_SESSION_SECRET=***REMOVED*** \
     WC_SESSION_MAX_AGE=86400000 \
     WC_MAX_FILE_SIZE=104857600 \
     WC_ALLOWED_EXTENSIONS=*
@@ -32,7 +30,6 @@ RUN apk add --no-cache libstdc++ \
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
-COPY --from=builder /app/config.json ./config.json
 
 RUN mkdir -p /data/webcommander
 

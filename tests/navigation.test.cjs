@@ -215,6 +215,7 @@ test('login uses native username/password/submit focus order, valid form submiss
   assert.match(inputs[2], /type="submit"/);
   assert.match(html, /for="username"/); assert.match(html, /for="password"/);
   assert.doesNotMatch(html, /tabindex/i);
+  assert.doesNotMatch(html, /Default credentials|admin123/);
   const find = element => {
     if (!element || typeof element !== 'object') return;
     if (element.type === 'form') return element;

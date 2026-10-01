@@ -15,12 +15,15 @@ const TransferService = require('./services/transferService');
 const ArchiveService = require('./services/archiveService');
 const TerminalService = require('./services/terminalService');
 const attachTerminalWebSocket = require('./terminalWebSocket');
+const { resolveAuthConfig, validateSecurityConfig, sessionSettings } = require('./configSecurity');
+const { registerAuthRoutes } = require('./authRoutes');
 
 const rawConfig = (() => {
   try {
     return require(path.join(__dirname, '..', 'config.json'));
   } catch (error) {
-    return {};
+    if (error.code === 'MODULE_NOT_FOUND') return {};
+    throw new Error('Failed to load config.json');
   }
 })();
 
@@ -44,38 +47,11 @@ const parseEnvInt = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const parseEnvBoolean = (value, fallback) => {
-  if (value === undefined || value === null || value === '') {
-    return fallback;
-  }
-
-  return ['true', '1', 'yes', 'on'].includes(String(value).toLowerCase());
-};
-
-const parseJsonValue = (value, fallback) => {
-  if (value === undefined || value === null || value === '') {
-    return fallback;
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    return fallback;
-  }
-};
-
 const defaultRootPath = process.env.WC_ROOT_PATH || rawConfig.rootPath || path.resolve(__dirname, '..');
 const config = {
   port: parseEnvInt(process.env.WC_PORT, rawConfig.port || 3001),
   rootPath: process.env.WC_ROOT_PATH || rawConfig.rootPath || defaultRootPath,
-  auth: {
-    enabled: parseEnvBoolean(process.env.WC_AUTH_ENABLED, rawConfig.auth?.enabled ?? true),
-    users: parseJsonValue(process.env.WC_AUTH_USERS, rawConfig.auth?.users || [
-      { username: process.env.WC_AUTH_USERNAME || 'admin', password: process.env.WC_AUTH_PASSWORD || '***REMOVED***' }
-    ]),
-    sessionSecret: process.env.WC_SESSION_SECRET || rawConfig.auth?.sessionSecret || '***REMOVED***',
-    sessionMaxAge: parseEnvInt(process.env.WC_SESSION_MAX_AGE, rawConfig.auth?.sessionMaxAge || 86400000)
-  },
+  auth: resolveAuthConfig(rawConfig),
   security: {
     allowedPaths: parseEnvList(process.env.WC_ALLOWED_PATHS, rawConfig.security?.allowedPaths || [defaultRootPath]),
     blockedPaths: parseEnvList(process.env.WC_BLOCKED_PATHS, rawConfig.security?.blockedPaths || []),
@@ -84,7 +60,13 @@ const config = {
   }
 };
 
+for (const warning of validateSecurityConfig(config)) console.warn(`[security] ${warning}`);
+console.log('[security]', JSON.stringify({ authEnabled: config.auth.enabled, cookieSecure: config.auth.cookieSecure,
+  trustProxyConfigured: config.auth.trustProxy !== false, sessionStore: 'MemoryStore', users: config.auth.users.length,
+  cors: config.auth.corsOrigins.length ? `approved origins: ${config.auth.corsOrigins.length}` : 'same-origin' }));
+
 const app = express();
+if (config.auth.trustProxy !== false) app.set('trust proxy', config.auth.trustProxy);
 const PORT = config.port;
 const localProvider = new LocalProvider({
   rootPath: config.rootPath,
@@ -118,24 +100,18 @@ const createProvider = async (providerType, sessionId, req) => {
 };
 
 // Middleware
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+if (config.auth.corsOrigins.length) {
+  app.use(cors({
+    origin: (origin, callback) => callback(null, config.auth.corsOrigins.includes(origin)),
+    credentials: true,
+  }));
+}
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session middleware
-const sessionMiddleware = session({
-  secret: config.auth.sessionSecret,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: false, // Set to true in production with HTTPS
-    httpOnly: true,
-    maxAge: config.auth.sessionMaxAge
-  }
-});
+// One session middleware instance serves HTTP and terminal WebSocket upgrades.
+const { cookieOptions, options: sessionOptions } = sessionSettings(config.auth);
+const sessionMiddleware = session(sessionOptions);
 app.use(sessionMiddleware);
 
 // Auth middleware
@@ -189,47 +165,7 @@ const upload = multer({
 
 // ============ AUTH ROUTES ============
 
-app.post('/api/auth/login', (req, res) => {
-  if (!config.auth.enabled) {
-    req.session.authenticated = true;
-    req.session.username = 'anonymous';
-    return res.json({ success: true, username: 'anonymous' });
-  }
-  
-  const { username, password } = req.body;
-  
-  const user = config.auth.users.find(
-    u => u.username === username && u.password === password
-  );
-  
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-  
-  req.session.authenticated = true;
-  req.session.username = user.username;
-  
-  res.json({ success: true, username: user.username });
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  SSHManager.disconnectByOwner(req.sessionID);
-  req.session.destroy(error => {
-    if (error) return res.status(500).json({ error: 'Failed to destroy web session' });
-    res.json({ success: true });
-  });
-});
-
-app.get('/api/auth/check', (req, res) => {
-  if (!config.auth.enabled) {
-    return res.json({ authenticated: true, username: 'anonymous' });
-  }
-  
-  res.json({
-    authenticated: req.session && req.session.authenticated,
-    username: req.session ? req.session.username : null
-  });
-});
+registerAuthRoutes(app, { auth: config.auth, sshManager: SSHManager, cookieOptions });
 
 // ============ FILE OPERATIONS ============
 
