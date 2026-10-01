@@ -23,6 +23,11 @@ export type TransferResult = {
 
 export type ArchiveProvider = 'local' | 'sftp';
 
+export type FileInfo = {
+  path: string; name: string; type: string; size: number; modified: string;
+  permissions?: string; uid?: number; gid?: number;
+};
+
 export type ArchiveResult = {
   success: boolean;
   destinationPath?: string;
@@ -357,6 +362,12 @@ class ApiClient {
     });
   }
 
+  async createFile(provider: 'local' | 'sftp', directory: string, name: string, sessionId?: string) {
+    return this.request<{ success: boolean; path: string }>('/files/create', {
+      method: 'POST', body: JSON.stringify({ provider, directory, name, sessionId }),
+    });
+  }
+
   async upload(path: string, file: File) {
     if (demoMode) {
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -390,16 +401,11 @@ class ApiClient {
   }
 
   async getFileInfo(path: string) {
-    return this.request<{
-      path: string;
-      name: string;
-      type: string;
-      size: number;
-      created: string;
-      modified: string;
-      accessed: string;
-      permissions: string;
-    }>(`/files/info?path=${encodeURIComponent(path)}`);
+    return this.request<FileInfo>(`/files/info?path=${encodeURIComponent(path)}`);
+  }
+
+  async sshGetFileInfo(sessionId: string, path: string) {
+    return this.request<FileInfo>(`/ssh/files/info?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`);
   }
 
   // ============ SSH Methods ============

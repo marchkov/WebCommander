@@ -490,6 +490,33 @@ app.post('/api/archives/extract', requireAuth, async (req, res) => {
   }
 });
 
+// Create an empty file without replacing any existing entry.
+app.post('/api/files/create', requireAuth, async (req, res) => {
+  const { provider: providerType, sessionId, directory, name } = req.body;
+  if (!['local', 'sftp'].includes(providerType) || typeof directory !== 'string' || !directory.trim() ||
+      typeof name !== 'string' || !name.trim() || name === '.' || name === '..' || /[\\/:<>"|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) ||
+      (providerType === 'sftp' && (typeof sessionId !== 'string' || !sessionId.trim()))) {
+    return res.status(400).json({ error: 'provider, directory and a valid file name are required' });
+  }
+  try {
+    const provider = await createProvider(providerType, sessionId, req);
+    const parent = await provider.stat(directory);
+    if (parent.type !== 'folder') return res.status(400).json({ error: 'Destination must be a directory' });
+    const destination = provider.joinPath(parent.path, name);
+    try {
+      await provider.lstat(destination);
+      return res.status(409).json({ error: 'Destination already exists' });
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'SSH_FX_NO_SUCH_FILE' && error.code !== 2) throw error;
+    }
+    await provider.write(destination, '', { exclusive: true });
+    res.json({ success: true, path: destination });
+  } catch (error) {
+    if (error.code === 'EEXIST') return res.status(409).json({ error: 'Destination already exists' });
+    res.status(error.statusCode || error.status || 500).json({ error: error.message, code: error.code });
+  }
+});
+
 // Rename file or directory
 app.post('/api/files/rename', requireAuth, async (req, res) => {
   const { path: targetPath, newName } = req.body;
@@ -581,7 +608,9 @@ app.get('/api/files/info', requireAuth, async (req, res) => {
       created: info.created,
       modified: info.modified,
       accessed: info.accessed,
-      permissions: info.permissions
+      permissions: info.permissions,
+      uid: info.uid,
+      gid: info.gid,
     });
   } catch (error) {
     if (error.statusCode === 403) {

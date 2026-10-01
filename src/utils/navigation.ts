@@ -4,13 +4,28 @@ import { isRootPath } from './paths';
 export const PARENT_ITEM_ID = '..';
 
 type SelectionAction = 'all' | 'clear' | 'invert' | 'insert';
-export function connectionShortcut(event: { key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): SelectionAction | 'connections' | 'refresh' | 'swap' | undefined {
-  if (event.altKey || event.shiftKey) return;
-  if (event.ctrlKey || event.metaKey) {
-    return ({ f: 'connections', r: 'refresh', u: 'swap', a: 'all' } as const)[event.key.toLowerCase() as 'f' | 'r' | 'u' | 'a'];
+type CommanderCommand = SelectionAction | 'connections' | 'refresh' | 'swap' | 'pack' | 'extract' | 'newFile' | 'rename' | 'properties' | 'terminal'
+  | 'down' | 'up' | 'parent' | 'open' | 'view' | 'edit' | 'copy' | 'move' | 'mkdir' | 'delete' | 'switchPanel';
+export function connectionShortcut(event: { key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): CommanderCommand | undefined {
+  const { key, code, ctrlKey, metaKey, altKey, shiftKey } = event;
+  if ((ctrlKey || metaKey) && !altKey && !shiftKey) {
+    const commands: Record<string, CommanderCommand> = { f: 'connections', r: 'refresh', u: 'swap', a: 'all', t: 'terminal' };
+    return commands[key.toLowerCase()];
   }
-  if (event.key === 'Insert') return 'insert';
-  return ({ NumpadMultiply: 'invert', NumpadAdd: 'all', NumpadSubtract: 'clear' } as const)[event.code as 'NumpadMultiply' | 'NumpadAdd' | 'NumpadSubtract'];
+  if (ctrlKey || metaKey) return;
+  if (altKey) {
+    if (shiftKey) return;
+    const commands: Record<string, CommanderCommand> = { F5: 'pack', F9: 'extract', Enter: 'properties' };
+    return commands[key];
+  }
+  if (shiftKey) {
+    const commands: Record<string, CommanderCommand> = { F4: 'newFile', F6: 'rename', Tab: 'switchPanel' };
+    return commands[key];
+  }
+  const numpad: Record<string, SelectionAction> = { NumpadMultiply: 'invert', NumpadAdd: 'all', NumpadSubtract: 'clear' };
+  const commands: Record<string, CommanderCommand> = { Insert: 'insert', ArrowDown: 'down', ArrowUp: 'up', Backspace: 'parent',
+    Enter: 'open', F3: 'view', F4: 'edit', F5: 'copy', F6: 'move', F7: 'mkdir', F8: 'delete', Tab: 'switchPanel' };
+  return numpad[code] || commands[key];
 }
 
 export function selectionAction(panel: PanelState, action: SelectionAction): PanelState {
@@ -50,6 +65,11 @@ export function currentItemId(panel: PanelState) {
   return panel.selectedItems.length === 1 && ids.includes(panel.selectedItems[0]) ? panel.selectedItems[0] : undefined;
 }
 
+export function currentItem(panel: PanelState): FileItem | undefined {
+  const id = currentItemId(panel);
+  return id === PARENT_ITEM_ID ? undefined : panel.files.find(file => file.id === id);
+}
+
 export function moveCursor(panel: PanelState, direction: 1 | -1): PanelState {
   const ids = visibleItemIds(panel);
   if (!ids.length) return { ...panel, focusedItemId: undefined, selectedItems: [] };
@@ -69,7 +89,7 @@ export function selectItem(panel: PanelState, id: string, multi: boolean): Panel
 export function itemAction(panel: PanelState, key: 'Enter' | 'F3' | 'F4') {
   const id = currentItemId(panel);
   if (id === PARENT_ITEM_ID) return key === 'Enter' ? { type: 'navigate' as const, path: id } : null;
-  const item = panel.files.find(file => file.id === id);
+  const item = currentItem(panel);
   if (!item) return null;
   if (item.type === 'folder') return key === 'Enter' ? { type: 'navigate' as const, path: item.id } : null;
   return { type: 'open' as const, path: item.id, readOnly: key === 'F3' };

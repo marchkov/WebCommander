@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import FilePanel from './components/FilePanel';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import FilePanel, { FilePanelHandle } from './components/FilePanel';
+import PropertiesModal from './components/PropertiesModal';
+import { createTextFile, renameCurrentItem, currentItemProperties } from './utils/fileCommands';
 import Toolbar from './components/Toolbar';
 import Modal from './components/Modal';
 import StatusBar from './components/StatusBar';
@@ -8,10 +10,10 @@ import FileEditor from './components/FileEditor';
 import ConnectionsModal from './components/ConnectionsModal';
 import { attachSession, localPanel, PANEL_STORAGE_KEY, readBindings, restorePanel, serializePanels, SSHSession } from './utils/connections';
 import SSHConnectModal from './components/SSHConnectModal';
-import { ApiError, api, ProviderDescriptor } from './api/client';
+import { ApiError, api, ProviderDescriptor, FileInfo } from './api/client';
 import { FileItem, PanelState } from './types';
 import { getParentPath, isRootPath, joinPath } from './utils/paths';
-import { connectionShortcut, selectionAction, itemAction, moveCursor, selectItem } from './utils/navigation';
+import { connectionShortcut, selectionAction, itemAction, moveCursor, selectItem, currentItem } from './utils/navigation';
 
 type PanelSide = 'left' | 'right';
 
@@ -57,6 +59,10 @@ function App() {
     isOpen: false,
     targetPanel: 'left',
   });
+
+  const leftPanelRef = useRef<FilePanelHandle>(null);
+  const rightPanelRef = useRef<FilePanelHandle>(null);
+  const [properties, setProperties] = useState<FileInfo | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -566,68 +572,105 @@ function App() {
     }
   };
 
+  const handleNewFile = () => {
+    const panel = getActivePanelState();
+    const side = activePanel;
+    let pending = false;
+    setModal({
+      isOpen: true, type: 'input', title: 'New Text File', placeholder: 'File name...',
+      action: async (name: string) => {
+        if (pending) return;
+        pending = true;
+        try {
+          const path = await createTextFile(panel, name);
+          await loadDirectory(panel.currentPath, side, panel);
+          const update = side === 'left' ? setLeftPanel : setRightPanel;
+          update(state => ({ ...state, focusedItemId: path, selectedItems: [path] }));
+          setModal({ isOpen: false, type: 'input', title: '' });
+          setEditor({ isOpen: true, filePath: path, sessionId: panel.mode === 'ssh' ? panel.sshSessionId : undefined, readOnly: false });
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'File creation failed', 'error');
+        } finally { pending = false; }
+      },
+    });
+  };
+
+  const handleRename = () => {
+    const panel = getActivePanelState();
+    const item = currentItem(panel);
+    if (!item) return;
+    const side = activePanel;
+    let pending = false;
+    setModal({
+      isOpen: true, type: 'input', title: 'Rename', defaultValue: item.name,
+      action: async (name: string) => {
+        if (pending) return;
+        pending = true;
+        try {
+          const path = await renameCurrentItem(panel, name);
+          await loadDirectory(panel.currentPath, side, panel);
+          const update = side === 'left' ? setLeftPanel : setRightPanel;
+          update(state => ({ ...state, focusedItemId: path, selectedItems: path ? [path] : [] }));
+          setModal({ isOpen: false, type: 'input', title: '' });
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Rename failed', 'error');
+        } finally { pending = false; }
+      },
+    });
+  };
+
+  const handleProperties = async () => {
+    try {
+      const info = await currentItemProperties(getActivePanelState());
+      if (info) setProperties(info);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to load properties', 'error');
+    }
+  };
+
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!authenticated || !restored || e.defaultPrevented || e.altKey) return;
+    if (!authenticated || !restored || e.defaultPrevented) return;
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-terminal-drawer]')) return;
-    if (modal.isOpen || editor.isOpen || sshModal.isOpen || connectionsOpen) return;
-    const panel = getActivePanelState();
+    if (modal.isOpen || editor.isOpen || sshModal.isOpen || connectionsOpen || properties) return;
     const command = connectionShortcut(e);
-    if (command) {
-      e.preventDefault();
-      if (command === 'connections') setConnectionsOpen(true);
-      else if (command === 'refresh') handleRefresh();
-      else if (command === 'swap') handleSwap();
-      else {
+    if (!command) return;
+    e.preventDefault();
+    const panel = getActivePanelState();
+    switch (command) {
+      case 'connections': setConnectionsOpen(true); break;
+      case 'refresh': handleRefresh(); break;
+      case 'swap': handleSwap(); break;
+      case 'pack': handlePack(); break;
+      case 'extract': handleExtract(); break;
+      case 'newFile': handleNewFile(); break;
+      case 'rename': handleRename(); break;
+      case 'properties': handleProperties(); break;
+      case 'terminal': (activePanel === 'left' ? leftPanelRef : rightPanelRef).current?.toggleTerminal(); break;
+      case 'all': case 'clear': case 'invert': case 'insert': {
         const update = activePanel === 'left' ? setLeftPanel : setRightPanel;
         update(state => selectionAction(state, command));
+        break;
       }
-      return;
-    }
-    if (e.ctrlKey || e.metaKey) return;
-    switch (e.key) {
-      case 'ArrowDown':
-      case 'ArrowUp': {
-        e.preventDefault();
+      case 'down': case 'up': {
         const update = activePanel === 'left' ? setLeftPanel : setRightPanel;
-        update(state => moveCursor(state, e.key === 'ArrowDown' ? 1 : -1));
+        update(state => moveCursor(state, command === 'down' ? 1 : -1));
         break;
       }
-      case 'Backspace':
-        e.preventDefault();
-        handleNavigate('..');
-        break;
-      case 'Enter':
-      case 'F3':
-      case 'F4': {
-        e.preventDefault();
-        const action = itemAction(panel, e.key);
+      case 'parent': handleNavigate('..'); break;
+      case 'open': case 'view': case 'edit': {
+        const action = itemAction(panel, command === 'open' ? 'Enter' : command === 'view' ? 'F3' : 'F4');
         if (action?.type === 'navigate') handleNavigate(action.path);
         else if (action?.type === 'open') handleFileOpen(action.path, action.readOnly);
         break;
       }
-      case 'F5':
-        e.preventDefault();
-        handleCopy();
-        break;
-      case 'F6':
-        e.preventDefault();
-        handleMove();
-        break;
-      case 'F7':
-        e.preventDefault();
-        handleMkdir();
-        break;
-      case 'F8':
-        e.preventDefault();
-        handleDelete();
-        break;
-      case 'Tab':
-        e.preventDefault();
-        setActivePanel(prev => prev === 'left' ? 'right' : 'left');
-        break;
+      case 'copy': handleCopy(); break;
+      case 'move': handleMove(); break;
+      case 'mkdir': handleMkdir(); break;
+      case 'delete': handleDelete(); break;
+      case 'switchPanel': setActivePanel(prev => prev === 'left' ? 'right' : 'left'); break;
     }
-  }, [authenticated, restored, connectionsOpen, activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
+  }, [authenticated, restored, connectionsOpen, properties, activePanel, leftPanel, rightPanel, modal.isOpen, editor.isOpen, sshModal.isOpen]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -668,6 +711,7 @@ function App() {
       <div className="flex-1 flex gap-1 p-1 min-h-0">
         <div className="flex-1 min-w-0">
           <FilePanel
+            ref={leftPanelRef}
             title="Left Panel"
             files={leftPanel.files}
             currentPath={leftPanel.currentPath}
@@ -689,6 +733,7 @@ function App() {
         </div>
         <div className="flex-1 min-w-0">
           <FilePanel
+            ref={rightPanelRef}
             title="Right Panel"
             files={rightPanel.files}
             currentPath={rightPanel.currentPath}
@@ -751,6 +796,8 @@ function App() {
           onSave={() => loadDirectory(getActivePanelState().currentPath, activePanel)}
         />
       )}
+
+      {properties && <PropertiesModal info={properties} onClose={() => setProperties(null)} />}
 
       {/* Toast */}
       {toast && (

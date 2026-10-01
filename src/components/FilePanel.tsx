@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, lazy, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { FileItem } from '../types';
 import { panelIdentity } from '../terminal/session';
 import { sortFiles } from '../utils/navigation';
@@ -90,7 +90,9 @@ function getIconColor(item: FileItem): string {
   }
 }
 
-const FilePanel: React.FC<FilePanelProps> = ({
+export type FilePanelHandle = { toggleTerminal: () => void };
+
+const FilePanel = forwardRef<FilePanelHandle, FilePanelProps>(({
   title,
   files,
   currentPath,
@@ -108,7 +110,7 @@ const FilePanel: React.FC<FilePanelProps> = ({
   sshHost,
   sshUser,
   sshSessionId,
-}) => {
+}, ref) => {
   const identity = panelIdentity({ mode, sshSessionId, currentPath });
   const [terminalOwner, setTerminalOwner] = useState<string | null>(null);
   const terminalOpen = terminalOwner === identity;
@@ -116,6 +118,11 @@ const FilePanel: React.FC<FilePanelProps> = ({
   const sortedFiles = useMemo(() => sortFiles(files, sortBy, sortOrder), [files, sortBy, sortOrder]);
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const toggleTerminal = () => {
+    if (mode === 'ssh' && !sshSessionId) return;
+    setTerminalOwner(terminalOpen ? null : identity);
+  };
+  useImperativeHandle(ref, () => ({ toggleTerminal }), [identity, terminalOpen, mode, sshSessionId]);
   useEffect(() => {
     if (!isActive || !focusedItemId) return;
     const row = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-file-row]') || [])
@@ -165,10 +172,10 @@ const FilePanel: React.FC<FilePanelProps> = ({
             </>
           )}
         </div>
-        <button title={terminalOpen ? 'Close panel terminal' : 'Open panel terminal'} aria-label={`${title} terminal`}
+        <button title={terminalOpen ? 'Close panel terminal (Ctrl+T)' : 'Open panel terminal (Ctrl+T)'} aria-label={`${title} terminal`}
           aria-expanded={terminalOpen} disabled={mode === 'ssh' && !sshSessionId}
           className="px-2 py-1 text-cyan-400 hover:bg-gray-700 rounded disabled:text-gray-600"
-          onClick={event => { event.stopPropagation(); setTerminalOwner(terminalOpen ? null : identity); }}>&gt;_</button>
+          onClick={event => { event.stopPropagation(); toggleTerminal(); }}>&gt;_</button>
         <div className="text-xs text-gray-500 flex items-center gap-2">
           {mode === 'ssh' && (
             <span className="px-1.5 py-0.5 bg-green-900/30 border border-green-700/50 rounded text-green-400 text-[10px] font-medium">
@@ -315,6 +322,6 @@ const FilePanel: React.FC<FilePanelProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default FilePanel;

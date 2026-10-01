@@ -60,10 +60,10 @@ class LocalProvider extends FileProvider {
       path.dirname(lexicalPath), stats.isSymbolicLink());
   }
 
-  async write(targetPath, data) {
+  async write(targetPath, data, options = {}) {
     const resolvedPath = await this.validateDestinationPath(targetPath);
     await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
-    await fs.promises.writeFile(resolvedPath, data, 'utf8');
+    await fs.promises.writeFile(resolvedPath, data, { encoding: 'utf8', flag: options.exclusive ? 'wx' : 'w' });
   }
 
   async mkdir(targetPath) {

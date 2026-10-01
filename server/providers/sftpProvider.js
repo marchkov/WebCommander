@@ -130,11 +130,11 @@ class SftpProvider extends FileProvider {
     return this.toFileEntry(resolvedPath, path.posix.basename(resolvedPath), attrs, path.posix.dirname(resolvedPath));
   }
 
-  async write(remotePath, data) {
+  async write(remotePath, data, options = {}) {
     await this.initialize();
     const resolvedPath = this.resolvePathAfterInitialization(remotePath);
     const sftp = this.sftp;
-    const stream = sftp.createWriteStream(resolvedPath);
+    const stream = sftp.createWriteStream(resolvedPath, { flags: options.exclusive ? 'wx' : 'w' });
     const completion = this.waitForStream(stream);
     stream.end(data, 'utf8');
     await completion;

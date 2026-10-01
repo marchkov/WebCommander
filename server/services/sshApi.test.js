@@ -86,6 +86,7 @@ test('SSH HTTP sessions survive rediscovery and enforce browser ownership across
     ['/ssh/exec', { command: 'no' }], ['/ssh/transfer', { sourcePath: '/a', destPath: '/b', direction: 'upload' }],
     ['/archives/create', { provider: 'sftp', sources: ['/file'], destination: '/a.zip' }],
     ['/archives/extract', { provider: 'sftp', archive: '/a.zip', destination: '/out' }],
+    ['/files/create', { provider: 'sftp', directory: '/home', name: 'new.txt' }],
     ['/transfers', { operation: 'copy', source: { provider: 'sftp', sessionId: 'owned', path: '/a' }, destination: { provider: 'local', path: root } }],
     ['/transfers', { operation: 'copy', source: { provider: 'local', path: root }, destination: { provider: 'sftp', sessionId: 'owned', path: '/a' } }],
   ]) {

@@ -249,10 +249,10 @@ test('App leaves login Tab native and protects terminal/input/editor shortcuts; 
       let handler, index = 0;
       const overrides = {
         react: { ...React, useState: () => { const i = index++; return [states[i], value => changes.push([i, value])]; },
-          useEffect() {}, useCallback: fn => { handler = fn; return fn; } },
+          useRef: () => ({ current: null }), useEffect() {}, useCallback: fn => { handler = fn; return fn; } },
         './api/client': { api: { isDemoMode: () => false } },
       };
-      for (const component of ['FilePanel', 'Toolbar', 'Modal', 'StatusBar', 'Login', 'FileEditor', 'SSHConnectModal', 'ConnectionsModal']) {
+      for (const component of ['FilePanel', 'Toolbar', 'Modal', 'StatusBar', 'Login', 'FileEditor', 'SSHConnectModal', 'ConnectionsModal', 'PropertiesModal']) {
         overrides['./components/' + component] = () => null;
       }
       loadTs(path.resolve(__dirname, '../src/App.tsx'), overrides).default();
@@ -263,4 +263,169 @@ test('App leaves login Tab native and protects terminal/input/editor shortcuts; 
       assert.deepEqual(changes, expected ? [[0, true]] : []);
     }
   } finally { global.Element = OriginalElement; }
+});
+
+test('Commander shortcut helper resolves modifiers explicitly and preserves plain commands', () => {
+  const key = (key, extra = {}) => connectionShortcut({ key, code: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...extra });
+  for (const [keyName, modifiers, expected] of [
+    ['F5', { altKey: true }, 'pack'], ['F9', { altKey: true }, 'extract'],
+    ['F4', { shiftKey: true }, 'newFile'], ['F6', { shiftKey: true }, 'rename'],
+    ['Enter', { altKey: true }, 'properties'], ['t', { ctrlKey: true }, 'terminal'],
+    ['F3', {}, 'view'], ['F4', {}, 'edit'], ['F5', {}, 'copy'], ['F6', {}, 'move'],
+    ['F7', {}, 'mkdir'], ['F8', {}, 'delete'], ['Enter', {}, 'open'], ['Backspace', {}, 'parent'],
+    ['Tab', {}, 'switchPanel'], ['Tab', { shiftKey: true }, 'switchPanel'],
+  ]) assert.equal(key(keyName, modifiers), expected);
+  for (const keyName of ['F3', 'F4', 'F5', 'F6', 'F7', 'F8']) {
+    assert.equal(key(keyName, { ctrlKey: true }), undefined);
+    assert.equal(key(keyName, { altKey: true, shiftKey: true }), undefined);
+    assert.equal(key(keyName, { ctrlKey: true, altKey: true }), undefined);
+  }
+  assert.equal(key('F5', { shiftKey: true }), undefined);
+  assert.equal(key('F4', { altKey: true }), undefined);
+});
+
+const { currentItem } = loadTs(path.resolve(__dirname, '../src/utils/navigation.ts'));
+test('one-item commands prefer cursor, fall back to a single selection, and exclude parent', () => {
+  assert.equal(currentItem(panel({ focusedItemId: 'alpha', selectedItems: ['a.md'] })).id, 'alpha');
+  assert.equal(currentItem(panel({ selectedItems: ['a.md'] })).id, 'a.md');
+  assert.equal(currentItem(panel({ selectedItems: ['a.md', 'z.txt'] })), undefined);
+  assert.equal(currentItem(panel({ focusedItemId: '..', selectedItems: ['a.md'] })), undefined);
+  assert.equal(currentItem(panel({ selectedItems: ['..'] })), undefined);
+});
+
+const { createTextFile, renameCurrentItem, currentItemProperties, validateFileName } = loadTs(path.resolve(__dirname, '../src/utils/fileCommands.ts'));
+test('file commands use Local and SSH APIs, reject invalid names and propagate create conflicts', async () => {
+  for (const mode of ['local', 'ssh']) {
+    const calls = [];
+    const client = {
+      createFile: async (...args) => { calls.push(['create', ...args]); return { path: '/repo/new.txt' }; },
+      rename: async (...args) => { calls.push(['rename', ...args]); return { newPath: '/repo/new-name' }; },
+      sshRename: async (...args) => { calls.push(['sshRename', ...args]); },
+      getFileInfo: async (...args) => { calls.push(['info', ...args]); return { name: 'local info' }; },
+      sshGetFileInfo: async (...args) => { calls.push(['sshInfo', ...args]); return { name: 'SSH info' }; },
+    };
+    const state = panel({ mode, sshSessionId: 'existing', focusedItemId: 'a.md' });
+    assert.equal(await createTextFile(state, 'new.txt', client), '/repo/new.txt');
+    assert.deepEqual(calls.shift(), ['create', mode === 'ssh' ? 'sftp' : 'local', '/repo', 'new.txt', mode === 'ssh' ? 'existing' : undefined]);
+    for (const focusedItemId of ['a.md', 'alpha']) {
+      assert.equal(await renameCurrentItem({ ...state, focusedItemId }, 'new-name', client), '/repo/new-name');
+      assert.deepEqual(calls.shift(), mode === 'ssh' ? ['sshRename', 'existing', focusedItemId, '/repo/new-name'] : ['rename', focusedItemId, 'new-name']);
+    }
+    assert.equal((await currentItemProperties(state, client)).name, mode === 'ssh' ? 'SSH info' : 'local info');
+    assert.deepEqual(calls.shift(), mode === 'ssh' ? ['sshInfo', 'existing', 'a.md'] : ['info', 'a.md']);
+    const conflict = new Error('Destination already exists');
+    await assert.rejects(createTextFile(state, 'new.txt', { ...client, createFile: async () => { throw conflict; } }), error => error === conflict);
+    await assert.rejects(createTextFile(state, '../escape', client), /valid file name/);
+    assert.equal(await renameCurrentItem({ ...state, focusedItemId: '..' }, 'ignored', client), undefined);
+    assert.equal(await currentItemProperties({ ...state, focusedItemId: '..' }, client), undefined);
+    assert.deepEqual(calls, []);
+  }
+  for (const name of ['', '.', '..', '../file', 'a/b', 'a\\b', 'bad:', 'bad.', 'bad ']) assert.throws(() => validateFileName(name));
+  await assert.rejects(createTextFile(panel({ mode: 'ssh' }), 'new.txt'), /SSH session is not active/);
+});
+
+function appFixture(state, api, overrides = {}) {
+  const React = require('react');
+  const states = [false, true, true, '', 'left', state, panel(), { isOpen: false }, { isOpen: false }, { isOpen: false }, null, null];
+  const changes = [], refs = [];
+  let handler, index = 0;
+  const imports = {
+    react: { ...React, useState: () => { const i = index++; return [states[i], value => changes.push([i, value])]; },
+      useRef: () => { const ref = { current: null }; refs.push(ref); return ref; },
+      useEffect() {}, useCallback: fn => { handler = fn; return fn; } },
+    './api/client': { api: { isDemoMode: () => false, ...api } },
+    '../api/client': { api },
+  };
+  for (const component of ['FilePanel', 'Toolbar', 'Modal', 'StatusBar', 'Login', 'FileEditor', 'SSHConnectModal', 'ConnectionsModal', 'PropertiesModal']) {
+    imports['./components/' + component] = () => null;
+  }
+  loadTs(path.resolve(__dirname, '../src/App.tsx'), { ...imports, ...overrides }).default();
+  return { changes, refs, press: (key, modifiers = {}, target = null) => {
+    let prevented = false;
+    handler({ key, code: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      defaultPrevented: false, target, preventDefault() { prevented = true; }, ...modifiers });
+    return prevented;
+  } };
+}
+
+test('App new-file flow creates, refreshes, focuses and opens Edit for both providers', async () => {
+  const original = global.Element; global.Element = class {};
+  try {
+    for (const mode of ['local', 'ssh']) {
+      const calls = [];
+      const state = panel({ mode, sshSessionId: 'existing' });
+      const app = appFixture(state, {
+        createFile: async (...args) => { calls.push(['create', ...args]); return { path: '/repo/new.txt' }; },
+        listFiles: async path => { calls.push(['list', path]); return { path, files: [] }; },
+        sshListFiles: async (id, path) => { calls.push(['sshList', id, path]); return { path, files: [] }; },
+      });
+      assert.equal(app.press('F4', { shiftKey: true }), true);
+      const modal = app.changes.find(([index]) => index === 7)[1];
+      assert.equal(modal.title, 'New Text File');
+      await modal.action('new.txt');
+      assert.deepEqual(calls, [
+        ['create', mode === 'ssh' ? 'sftp' : 'local', '/repo', 'new.txt', mode === 'ssh' ? 'existing' : undefined],
+        mode === 'ssh' ? ['sshList', 'existing', '/repo'] : ['list', '/repo'],
+      ]);
+      assert.deepEqual(app.changes.find(([index]) => index === 8)[1], {
+        isOpen: true, filePath: '/repo/new.txt', sessionId: mode === 'ssh' ? 'existing' : undefined, readOnly: false,
+      });
+      assert.equal(app.changes.find(([index, value]) => index === 5 && typeof value === 'function')[1](state).focusedItemId, '/repo/new.txt');
+    }
+  } finally { global.Element = original; }
+});
+
+test('App Ctrl+T toggles only active panel and ignores all protected input/terminal contexts', () => {
+  const original = global.Element;
+  global.Element = class { constructor(selector) { this.selector = selector; } closest(selectors) { return selectors.includes(this.selector); } };
+  try {
+    const app = appFixture(panel(), {});
+    let left = 0, right = 0;
+    app.refs[0].current = { toggleTerminal() { left++; } };
+    app.refs[1].current = { toggleTerminal() { right++; } };
+    for (const selector of ['input', 'textarea', 'select', '[contenteditable]', '[data-terminal-drawer]']) {
+      assert.equal(app.press('t', { ctrlKey: true }, new global.Element(selector)), false);
+    }
+    assert.equal(app.press('t', { ctrlKey: true }), true);
+    assert.equal(left, 1); assert.equal(right, 0);
+  } finally { global.Element = original; }
+});
+
+test('panel hotkey handle and terminal button share the same toggle, including missing SSH-session guard', () => {
+  const React = require('react');
+  for (const mode of ['local', 'ssh']) {
+    let owner = null;
+    const Panel = loadTs(path.resolve(__dirname, '../src/components/FilePanel.tsx'), {
+      react: { ...React, useState: () => [owner, next => { owner = next; }], useEffect() {}, useMemo: fn => fn(),
+        useRef: () => ({ current: null }), useImperativeHandle: (ref, create) => { ref.current = create(); } },
+    }).default;
+    const ref = { current: null };
+    const props = { title: 'Panel', files: [], currentPath: '/repo', selectedItems: [], isActive: true,
+      onSelect() {}, onNavigate() {}, onPanelClick() {}, sortBy: 'name', sortOrder: 'asc', onSort() {},
+      mode, sshSessionId: mode === 'ssh' ? 'existing' : undefined };
+    const find = tree => {
+      if (!tree || typeof tree !== 'object') return;
+      if (tree.props?.['aria-label'] === 'Panel terminal') return tree;
+      return React.Children.toArray(tree.props?.children).map(find).find(Boolean);
+    };
+    Panel.render(props, ref); ref.current.toggleTerminal(); assert.equal(typeof owner, 'string');
+    const open = Panel.render(props, ref); assert.equal(find(open).props['aria-expanded'], true);
+    find(open).props.onClick({ stopPropagation() {} }); assert.equal(owner, null);
+    Panel.render(props, ref); ref.current.toggleTerminal(); assert.equal(typeof owner, 'string');
+    Panel.render(props, ref); ref.current.toggleTerminal(); assert.equal(owner, null);
+    if (mode === 'ssh') {
+      Panel.render({ ...props, sshSessionId: undefined }, ref); ref.current.toggleTerminal(); assert.equal(owner, null);
+    }
+  }
+});
+
+test('properties dialog renders required metadata, including zero-valued owner IDs', () => {
+  const React = require('react');
+  const { renderToStaticMarkup } = require('react-dom/server');
+  const Dialog = loadTs(path.resolve(__dirname, '../src/components/PropertiesModal.tsx')).default;
+  const html = renderToStaticMarkup(React.createElement(Dialog, { info: {
+    name: 'file.txt', path: '/repo/file.txt', type: 'file', size: 12, modified: '2026-01-01', permissions: '644', uid: 0, gid: 1000,
+  }, onClose() {} }));
+  for (const text of ['file.txt', '/repo/file.txt', '12 bytes', 'Modified', 'Permissions', '644', 'Owner UID', 'Group GID']) assert.ok(html.includes(text));
+  assert.match(html, /<dd[^>]*>0<\/dd>/);
 });

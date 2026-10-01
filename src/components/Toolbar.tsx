@@ -43,8 +43,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
     { icon: 'fa-trash', label: 'Delete (F8)', action: onDelete, disabled: !hasSelection, color: 'hover:text-red-400' },
     { icon: 'fa-folder-plus', label: 'New Folder (F7)', action: onMkdir, disabled: false, color: 'hover:text-yellow-400' },
     { icon: 'fa-arrows-rotate', label: 'Refresh (Ctrl+R)', action: onRefresh, disabled: false, color: 'hover:text-emerald-400' },
-    { icon: 'fa-file-zipper', label: 'Pack to ZIP', action: onPack, disabled: !hasSelection, color: 'hover:text-amber-400' },
-    { icon: 'fa-box-open', label: 'Extract here', action: onExtract, disabled: !canExtract, color: 'hover:text-amber-300' },
+    { icon: 'fa-file-zipper', label: 'Pack to ZIP (Alt+F5)', action: onPack, disabled: !hasSelection, color: 'hover:text-amber-400' },
+    { icon: 'fa-box-open', label: 'Extract here (Alt+F9)', action: onExtract, disabled: !canExtract, color: 'hover:text-amber-300' },
     { icon: 'fa-right-left', label: 'Swap Panels', action: onSwap, disabled: false, color: 'hover:text-purple-400' },
   ];
 
