@@ -71,3 +71,30 @@ test('close before ready rejects connect and releases the ID', async () => {
   await assert.rejects(pending, /closed/);
   assert.deepEqual(manager.getActiveSessions(), []);
 });
+
+test('owner cleanup removes all owned connections, tolerates closing failures and leaves others alive', async () => {
+  const { manager, clients, start } = fixture();
+  for (const [id, owner] of [['one', 'browser1'], ['two', 'browser1'], ['other', 'browser2']]) {
+    const pending = start(id, owner); clients.at(-1).emit('ready'); await pending;
+  }
+  clients[0].end = () => { clients[0].ended = true; throw new Error('Already closing'); };
+  assert.doesNotThrow(() => manager.disconnectByOwner(undefined));
+  assert.doesNotThrow(() => manager.disconnectByOwner('unknown'));
+  assert.equal(manager.getActiveSessions().length, 3);
+  manager.disconnectByOwner('browser1');
+  assert.equal(clients[0].ended, true);
+  assert.equal(clients[1].ended, true);
+  assert.equal(clients[2].ended, undefined);
+  assert.deepEqual(manager.getActiveSessions('browser1'), []);
+  assert.equal(manager.getConnection('other', 'browser2').conn, clients[2]);
+  assert.doesNotThrow(() => manager.disconnectByOwner('browser1'));
+});
+
+test('undefined owner cleanup does not close unowned connections', async () => {
+  const { manager, clients } = fixture();
+  const pending = manager.connect('unowned', { host: 'host', username: 'user', password: 'secret' });
+  clients[0].emit('ready'); await pending;
+  manager.disconnectByOwner(undefined);
+  assert.equal(manager.getActiveSessions().length, 1);
+  assert.equal(clients[0].ended, undefined);
+});

@@ -98,4 +98,30 @@ test('SSH HTTP sessions survive rediscovery and enforce browser ownership across
   assert.equal((await post('/ssh/disconnect', { sessionId: 'owned' })).status, 200);
   assert.deepEqual(await (await get('/ssh/sessions')).json(), []);
   assert.equal((await get('/ssh/files?sessionId=owned&path=/')).status, 404);
+
+  // Keep a second browser session alive while logging out the first.
+  cookie = otherLogin.headers.get('set-cookie').split(';')[0];
+  assert.equal((await post('/ssh/connect', { ...connection, sessionId: 'other' })).status, 200);
+  cookie = ownerCookie;
+  for (const sessionId of ['logout-one', 'logout-two']) {
+    assert.equal((await post('/ssh/connect', { ...connection, sessionId })).status, 200);
+  }
+  assert.equal((await (await get('/ssh/sessions')).json()).length, 2);
+  const logout = await post('/auth/logout', {});
+  assert.equal(logout.status, 200);
+  assert.deepEqual(await logout.json(), { success: true });
+  assert.equal((await get('/ssh/sessions')).status, 401);
+
+  const relogin = await post('/auth/login', { username: 'archive-test', password: 'test-only' });
+  cookie = relogin.headers.get('set-cookie').split(';')[0];
+  assert.notEqual(cookie, ownerCookie);
+  assert.deepEqual(await (await get('/ssh/sessions')).json(), []);
+  // Reusing IDs proves the old sessions were removed, not merely hidden by ownership.
+  for (const sessionId of ['logout-one', 'logout-two']) {
+    assert.equal((await post('/ssh/connect', { ...connection, sessionId })).status, 200);
+  }
+  assert.equal((await post('/auth/logout', {})).status, 200);
+  assert.deepEqual(await (await post('/auth/logout', {})).json(), { success: true });
+  cookie = otherLogin.headers.get('set-cookie').split(';')[0];
+  assert.deepEqual((await (await get('/ssh/sessions')).json()).map(item => item.sessionId), ['other']);
 });

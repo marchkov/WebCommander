@@ -213,8 +213,11 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  req.session.destroy();
-  res.json({ success: true });
+  SSHManager.disconnectByOwner(req.sessionID);
+  req.session.destroy(error => {
+    if (error) return res.status(500).json({ error: 'Failed to destroy web session' });
+    res.json({ success: true });
+  });
 });
 
 app.get('/api/auth/check', (req, res) => {

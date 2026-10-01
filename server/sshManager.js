@@ -145,6 +145,16 @@ class SSHManager {
   }
 
   // Отключение всех сессий
+  static disconnectByOwner(ownerSessionId) {
+    if (ownerSessionId === undefined) return;
+    for (const [sessionId, session] of connections) {
+      if (session.ownerSessionId !== ownerSessionId) continue;
+      connections.delete(sessionId);
+      try { session.conn.end(); }
+      catch { /* Remove even an already closing transport; continue cleaning up this owner. */ }
+    }
+  }
+
   static disconnectAll() {
     for (const [sessionId, session] of connections) {
       session.conn.end();
