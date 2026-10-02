@@ -1,5 +1,7 @@
 # WebCommander
 
+Local configuration is private: copy `config.example.json` to `config.json` and replace the username/password placeholders, supply a random session secret of at least 32 characters, and configure your own data directory. `config.json` and `config.*.local.json` are ignored by Git. Never commit or publish them. Alternatively configure through `WC_*` environment variables; these override the local config. The example intentionally cannot start production unchanged. Create the configured data directory before launching. For local HTTP only, set `auth.cookieSecure` to false; production should use HTTPS. Explicitly choose an appropriate session-store policy before production startup.
+
 ### Keyboard navigation
 
 In the active file panel, **↑/↓** moves the current row in the displayed sort
@@ -139,7 +141,7 @@ Transfers use `/api/transfers`, and interactive terminals use the existing WebSo
 
 ## Docker
 
-The default Compose configuration mounts `D:/Example` to `/data/webcommander` and exposes port `3001`.
+The default Compose configuration mounts portable `./data` to `/data/webcommander` and exposes port `3001`; set `HOST_ROOT_PATH` for your own directory.
 
 ```bash
 docker compose up -d --build

@@ -1,5 +1,7 @@
 # WebCommander Deployment Guide
 
+`config.json` is local and ignored by Git, as are `config.*.local.json` files. Copy `config.example.json`, replace all placeholders and configure your paths, credentials, session secret and session-store policy, or supply environment variables instead. The example contains no production secret and must not be used unchanged. Create the data directory before launch. For Docker, `.env.example` uses portable `HOST_ROOT_PATH=./data`; configure your own mount as needed. Keep all local config, `.env`, safety bundles and credential audit reports private.
+
 ## Production authentication and sessions
 
 On Linux/macOS, `bash start.sh` uses the same local defaults, changes to the project directory before running and stops on installation/build errors. Use `bash start.sh production` for production. The script starts Node with `exec` so stop signals reach the server.
@@ -21,7 +23,7 @@ WC_SESSION_MAX_AGE=86400000
 WC_CORS_ORIGINS=
 ```
 
-Production refuses missing/placeholder/short session secrets (minimum 32 characters), empty credentials, default `admin/***REMOVED***`, malformed users JSON, and MemoryStore without an explicit opt-in. A session secret must be supplied; it is never generated on startup. Development/test defaults remain available with warnings that do not reveal their values.
+Production refuses missing/placeholder/short session secrets (minimum 32 characters), empty credentials, default development/test defaults, malformed users JSON, and MemoryStore without an explicit opt-in. A session secret must be supplied; it is never generated on startup. Development/test defaults remain available with warnings that do not reveal their values.
 
 `WC_ALLOW_MEMORY_SESSION_STORE=true` is an acknowledgement for a single-process, single-instance deployment where memory-only sessions and session loss on restart are acceptable. It does not make MemoryStore suitable for multiple instances or large production workloads. No external session store is added in this release. Configured passwords remain plaintext; constant-time digest comparisons do not hash the stored configuration. Password storage/hashing is a separate future change.
 

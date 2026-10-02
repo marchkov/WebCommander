@@ -1,0 +1,26 @@
+{
+  "port": 3001,
+  "rootPath": "./data",
+  "auth": {
+    "enabled": true,
+    "users": [
+      {
+        "username": "<set-your-username>",
+        "password": "<set-your-password>"
+      }
+    ],
+    "sessionSecret": "",
+    "sessionMaxAge": 86400000,
+    "cookieSecure": true,
+    "trustProxy": false,
+    "cookieName": "webcommander.sid",
+    "allowMemorySessionStore": false,
+    "corsOrigins": []
+  },
+  "security": {
+    "allowedPaths": ["./data"],
+    "blockedPaths": ["./data/private"],
+    "maxFileSize": 104857600,
+    "allowedExtensions": ["*"]
+  }
+}

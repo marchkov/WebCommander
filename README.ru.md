@@ -1,5 +1,7 @@
 # WebCommander
 
+Локальная конфигурация приватна: скопируйте `config.example.json` в `config.json`, замените шаблоны логина и пароля, задайте случайный session secret длиной не менее 32 символов и собственный каталог данных. `config.json` и `config.*.local.json` исключены из Git; не публикуйте их. Можно использовать переменные `WC_*`, которые перекрывают локальный config. Пример намеренно не запускает production без настройки. Создайте каталог данных перед запуском. Только для локального HTTP задайте `auth.cookieSecure=false`; в production используйте HTTPS и явно настройте политику хранения сессий.
+
 ### Клавиатурная навигация
 
 В активной файловой панели **↑/↓** перемещают курсор в порядке видимых строк,
@@ -49,7 +51,7 @@ Host и передавать WebSocket-upgrade. Один сокет открыв
 Локальный shell использует node-pty: PowerShell на Windows, `$SHELL`/bash/sh на
 Unix. LocalProvider проверяет стартовый каталог, включая ссылки. Это **не изоляция
 файловой системы**: команды выполняются с правами серверного пользователя.
-SSH использует PTY-канал существующего соединения. `/api/ssh/exec` сохранён.
+SSH использует PTY-канал существующего соединения.
 Windows-адаптер содержит локальный обход ошибки очистки ConPTY в node-pty 1.1;
 его следует перепроверить при обновлении зависимости.
 
@@ -104,7 +106,7 @@ WebCommander может работать в **demo режиме** без сер�
 ### Как использовать demo режим:
 
 1. Просто откройте `index.html` в браузере
-2. Войдите с любыми данными (например: `admin` / `***REMOVED***`)
+2. Войдите с любыми данными (например: `<demo-username>` / `<demo-password>`)
 3. Система автоматически переключится в demo режим
 4. Вы сможете протестировать весь интерфейс с mock данными
 
@@ -139,29 +141,11 @@ npm install
 ```
 
 3. Настройте конфигурацию в файле `config.json`:
-```json
-{
-  "port": 3001,
-  "rootPath": "/srv/webcommander/files",
-  "auth": {
-    "enabled": true,
-    "users": [
-      {
-        "username": "admin",
-        "password": "<set-your-password>"
-      }
-    ],
-    "sessionSecret": "<set-random-session-secret>",
-    "sessionMaxAge": 86400000
-  },
-  "security": {
-    "allowedPaths": ["/srv/webcommander/files"],
-    "blockedPaths": ["/etc", "/root", "/var/log"],
-    "maxFileSize": 104857600,
-    "allowedExtensions": ["*"]
-  }
-}
+```bash
+cp config.example.json config.json
+mkdir -p data
 ```
+Замените шаблоны учётных данных, задайте случайный session secret и настройте пути и параметры HTTPS в локальном файле. Он не отслеживается Git.
 
 ## ⚙️ Конфигурация
 

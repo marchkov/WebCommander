@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 config.local.json
+config.json
+config.*.local.json
 *.log
 .DS_Store
 Thumbs.db
