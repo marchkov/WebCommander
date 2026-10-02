@@ -9,3 +9,5 @@ gitignore
 .env.*
 coverage
 config.json
+config.local.json
+config.*.local.json

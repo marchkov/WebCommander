@@ -8,7 +8,7 @@ echo.
 REM Check if node is installed
 where node >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo   Node.js is not installed. Please install Node.js 18+ first.
+    echo   Node.js is not installed. Please install a supported Node.js LTS release first.
     pause
     exit /b 1
 )

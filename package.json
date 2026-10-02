@@ -1,45 +1,42 @@
 {
-  "name": "sandbox-workspace",
+  "name": "webcommander",
+  "version": "0.1.0",
+  "description": "Two-panel web file manager with Local and SSH/SFTP support",
+  "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marchkov/WebCommander.git"
+  },
+  "homepage": "https://github.com/marchkov/WebCommander#readme",
+  "bugs": {
+    "url": "https://github.com/marchkov/WebCommander/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dnd-kit/core": "^6.1.0",
-    "@dnd-kit/sortable": "^8.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
-    "@supabase/supabase-js": "^2.98.0",
-    "@types/ssh2": "^1.15.6",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "archiver": "^8.0.0",
-    "canvas-confetti": "^1.9.3",
     "cors": "^2.8.6",
-    "date-fns": "^2.30.0",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
-    "framer-motion": "^11.16.1",
-    "lucide-react": "^0.294.0",
     "mime-types": "^3.0.2",
     "multer": "^2.4.0",
     "node-pty": "^1.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.0",
-    "recharts": "^2.10.0",
     "ssh2": "^1.17.0",
     "unzipper": "^0.12.5",
-    "uuid": "^9.0.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",
-    "@types/canvas-confetti": "^1.6.4",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@types/uuid": "^9.0.7",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.7.0",

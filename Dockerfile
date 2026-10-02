@@ -30,6 +30,7 @@ RUN apk add --no-cache libstdc++ \
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
+COPY LICENSE ./LICENSE
 
 RUN mkdir -p /data/webcommander
 

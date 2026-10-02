@@ -304,6 +304,25 @@ test('local PTY error closes socket and releases the shell without crashing', as
   assert.equal(f.socket.messages.at(-2).type, 'error');
 });
 
+test('local PTY EIO follows platform error semantics and preserves Unix exit results', async t => {
+  const f = await fixture(t);
+  await f.send({ type: 'open', provider: 'local', cwd: f.cwd });
+  f.terminal.emit('data', 'completed\r\n');
+  f.terminal.emit('error', Object.assign(new Error('read EIO'), { code: 'EIO' }));
+  if (process.platform === 'win32') {
+    assert.equal(f.terminal.kills, 1);
+    assert.equal(f.socket.messages.at(-2).type, 'error');
+    return;
+  }
+  assert.equal(f.socket.readyState, 1);
+  assert.equal(f.terminal.kills, 0);
+  f.terminal.emit('exit', { exitCode: 7 });
+  assert.equal(f.socket.messages.some(message => message.type === 'error'), false);
+  assert.ok(f.socket.messages.some(message => message.type === 'output' && message.data === 'completed\r\n'));
+  assert.equal(f.socket.messages.find(message => message.type === 'exit').code, 7);
+  assert.equal(f.service.sessions.size, 0);
+});
+
 test('Windows natural-exit cleanup skips dead-console enumeration but releases native resources', async () => {
   let enumerations = 0;
   let released = 0;

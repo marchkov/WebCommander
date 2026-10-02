@@ -126,7 +126,12 @@ class TerminalSession {
       let exited = false;
       this.stopShell = () => killLocalPty(terminal, exited);
       if (typeof terminal.on === 'function') {
-        this.listen(terminal, 'error', error => this.fail(new Error(`Local terminal failed: ${error.message}`)));
+        this.listen(terminal, 'error', error => {
+          // Unix PTY reads end with EIO when the last process closes the slave.
+          // node-pty reports the process result through onExit separately.
+          if (process.platform !== 'win32' && error.code === 'EIO') return;
+          this.fail(new Error(`Local terminal failed: ${error.message}`));
+        });
       }
       this.write = data => terminal.write(data);
       this.resize = (width, height) => terminal.resize(width, height);

@@ -39,7 +39,26 @@ Browser state-changing API requests and login validate Origin against the effect
 
 `WC_MAX_FILE_SIZE` is a positive integer byte limit for both Local and SFTP multipart uploads, including chunked requests (default 104857600). Multipart memory buffering is bounded per request; size violations return 413. `WC_ALLOWED_EXTENSIONS` (or `security.allowedExtensions` in config) restricts uploads and new-file creation: `txt,.JPG,png` is case-insensitive, `*` allows everything, and `<none>` explicitly permits extensionless files and dotfiles. Prohibited extensions return 415; existing editor files remain editable. Uploads use exclusive creation and return 409 `DESTINATION_EXISTS` instead of overwriting files/directories. Destination directories must exist; LocalProvider path and symlink checks remain authoritative. SFTP upload requires an owned SSH session and uses the same `/api/files/upload` endpoint. Legacy SSH command, transfer and raw upload APIs are removed; use provider transfers and interactive terminals.
 
-## Docker deployment
+## Known deployment limitations
+
+The Dockerfile and CI currently retain the requested Node 20 baseline. Node 20
+reached end of life on April 30, 2026; move to a supported LTS before public
+production deployment. See the [Node.js release schedule](https://github.com/nodejs/Release#release-schedule).
+
+Deploy for trusted users. SSH host keys are currently accepted without verification
+or pinning: `SSHManager` does not supply ssh2's `hostVerifier`. A network attacker
+could impersonate an SSH server. Restrict SSH destinations/network access and do
+not treat remote identity as verified; host-key verification needs a separate change.
+See the [ssh2 client options](https://github.com/mscdex/ssh2#client-methods).
+
+The backend does not rate-limit login attempts; restrict external access and apply
+rate limits at the reverse proxy. Configured passwords are plaintext. Local
+terminal commands run with the server user's permissions, beyond LocalProvider
+path limits. MemoryStore remains suitable only for explicitly acknowledged
+single-instance deployments. These are deployment limitations, not checks removed
+by this release audit.
+
+## Docker setup
 
 1. Copy the project to the target host.
 2. Create `.env` from `.env.example`.
@@ -85,7 +104,9 @@ server {
     location / {
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host $http_host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;

@@ -14,7 +14,7 @@ export WC_SERVE_STATIC=true
 
 echo "Starting WebCommander..."
 if ! command -v node >/dev/null 2>&1; then
-    echo "Node.js is not installed. Please install Node.js 18+ first." >&2
+    echo "Node.js is not installed. Please install a supported Node.js LTS release first." >&2
     exit 1
 fi
 
